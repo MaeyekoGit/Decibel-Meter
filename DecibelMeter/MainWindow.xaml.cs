@@ -204,19 +204,16 @@ namespace DecibelMeter
             overlay.Left = selectedScreen.Bounds.Left / dpiX + (selectedScreen.Bounds.Width / dpiX - overlay.Width) / 2;
             overlay.Top = selectedScreen.Bounds.Top / dpiY + (selectedScreen.Bounds.Height / dpiY - overlay.Height) / 2;
 
-            if (!overlayShown)
-            {
-                overlay.Visibility = Visibility.Visible;
-                overlayShown = true;
-            }
+            overlay.CancelPendingHide(); // Ensures overlay stays visible and cancels fade-out
+            overlayShown = true;
         }
 
-        // Hides overlay window
+        // Hides overlay window with fade out effect
         private void HideOverlay()
         {
-            if (overlay != null)
+            if (overlay != null && overlay.Visibility == Visibility.Visible)
             {
-                overlay.Visibility = Visibility.Hidden;
+                overlay.FadeOutAndHide();
                 overlayShown = false;
             }
         }
