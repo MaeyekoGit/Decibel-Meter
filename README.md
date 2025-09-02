@@ -113,7 +113,7 @@ Settings are saved automatically and loaded on startup, including:
 
 ## Changelog
 
-### 1.1 (from dev branch)
+### Version 1.1
 
 - **Switched from decibel to percent-based level monitoring** for more intuitive and device-independent readings.
 - **Threshold is now set as a percentage** (0–100%) instead of dB.
