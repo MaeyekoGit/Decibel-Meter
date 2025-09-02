@@ -1,0 +1,41 @@
+﻿<Window x:Class="DecibelMeter.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="logo.ico"
+        Title="Decibel Meter" Height="430" Width="400"
+        Background="#222"
+        Foreground="#EEE">
+    <StackPanel Margin="10">
+        <TextBlock Text="Select Input Device:" FontWeight="Bold"/>
+        <ComboBox x:Name="DeviceComboBox" Margin="0,5"/>
+
+        <TextBlock Text="Threshold (dB):" FontWeight="Bold"/>
+        <TextBox x:Name="ThresholdBox" Background="DarkGray" Margin="0,5" Text="-20"/>
+
+        <TextBlock Text="Select Monitor:" FontWeight="Bold"/>
+        <ComboBox x:Name="MonitorComboBox" Margin="0,5"/>
+
+        <Button Content="Select Warning Sound" Click="SelectSound_Click" Margin="0,5"/>
+        <TextBlock x:Name="SelectedSoundText" Text="No file selected" Margin="0,2"/>
+
+        <TextBlock Text="Warning Sound Volume (0-200):" FontWeight="Bold"/>
+        <TextBox x:Name="VolumeBox" Margin="0,5" Text="100"/>
+
+
+        <TextBlock x:Name="OutputText" FontSize="16" FontWeight="Bold" Margin="0,5"/>
+
+        <!-- Start / Stop -->
+        <StackPanel Orientation="Horizontal" Margin="0,15" HorizontalAlignment="Center">
+            <Button Content="Start Monitoring" Click="Start_Click" Width="120" Margin="0,0,5,0"/>
+            <Button Content="Stop Monitoring" Click="Stop_Click" Width="120"/>
+        </StackPanel>
+
+
+        <!-- Visualisation -->
+        <Grid Height="50" Margin="0,0">
+            <Rectangle x:Name="BarBackground" Fill="DarkGray" RadiusX="5" RadiusY="5"/>
+            <Rectangle x:Name="BarLevel" Fill="Green" RadiusX="5" RadiusY="5" Width="0" HorizontalAlignment="Left"/>
+            <Line x:Name="ThresholdLine" Stroke="Red" StrokeThickness="3" X1="2" Y1="0" X2="0" Y2="50"/>
+        </Grid>
+    </StackPanel>
+</Window>
