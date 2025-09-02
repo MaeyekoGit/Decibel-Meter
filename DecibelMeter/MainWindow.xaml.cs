@@ -3,10 +3,11 @@ using System.Windows.Forms;
 using System.Windows.Media;
 using DecibelMeter.Models;
 using NAudio.Wave;
+using System.Collections.Generic;
 
 namespace DecibelMeter
 {
-    // MainWindow is the primary UI for the decibel meter application
+    // MainWindow is the primary UI for the percentage level meter application
     public partial class MainWindow : Window
     {
         private AudioService? audioService;
@@ -18,6 +19,8 @@ namespace DecibelMeter
         private string warningSoundPath = "";
         private bool isWarningPlaying = false;
 
+        private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
+
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
         {
@@ -25,7 +28,7 @@ namespace DecibelMeter
             config = ConfigService.Load();
             PopulateDeviceList();    // Fill input device list
             PopulateMonitorList();   // Fill monitor list
-            ThresholdBox.Text = config.ThresholdDb.ToString(); // Set ThresholdBox to have value saved in config
+            ThresholdBox.Text = config.ThresholdPercent.ToString();        // Now percent
             VolumeBox.Text = config.WarningSoundVolume.ToString(); // Set VolumeBox to have value saved in config
             InitializeOverlay();     // Create overlay window (hidden by default)
             LoadLastWarningSound();  // Load last used warning sound if available
@@ -64,9 +67,7 @@ namespace DecibelMeter
         private void PopulateMonitorList()
         {
             foreach (var screen in Screen.AllScreens)
-            {
                 MonitorComboBox.Items.Add(screen.DeviceName);
-            }
             MonitorComboBox.SelectedIndex = 0;
         }
 
@@ -85,7 +86,7 @@ namespace DecibelMeter
         private void Start_Click(object sender, RoutedEventArgs e)
         {
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdDb = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;
+            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;          // Now percent (0-100)
             config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : 100;
             ConfigService.Save(config);
 
@@ -103,59 +104,82 @@ namespace DecibelMeter
             audioService = null;
             OutputText.Text = "Monitoring stopped.";
             HideOverlay(); // Hide overlay window
+
+            // Hide the threshold line
+            ThresholdLine.Visibility = Visibility.Collapsed;
+            ThresholdValueLabel.Visibility = Visibility.Collapsed;
         }
 
-        // Handles volume measurement events from AudioService
-        // <param name="db">Measured decibel value</param>
-        private void OnVolumeMeasured(double db)
+        // Receives percent (0-100)
+        private void OnVolumeMeasured(double percent)
         {
             Dispatcher.Invoke(() =>
             {
-                OutputText.Text = $"Level: {db:F1} dB";
-                double threshold = config.ThresholdDb;
-                OutputText.Foreground = db > threshold ? Brushes.Red : Brushes.White;
+                // Add new value with timestamp
+                percentBuffer.Add((DateTime.UtcNow, percent));
 
-                UpdateBarLevel(db);         // Update visual bar
-                UpdateThresholdLine(threshold); // Update threshold line
+                // Remove values older than 2 seconds
+                DateTime cutoff = DateTime.UtcNow.AddSeconds(-2);
+                percentBuffer.RemoveAll(p => p.Timestamp < cutoff);
 
-                if (db > threshold)
+                // Compute average over last 2 seconds
+                // Only if average is above for 2 seconds, trigger warning
+                double avgPercent = percentBuffer.Count > 0 ? percentBuffer.Average(p => p.Value) : 0.0;
+
+                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}%)";
+                double thresholdPercent = config.ThresholdPercent;
+                OutputText.Foreground = avgPercent > thresholdPercent ? Brushes.Red : Brushes.White;
+
+                UpdateBarLevel(percent);
+                UpdateThresholdLine(thresholdPercent);
+
+                if (avgPercent > thresholdPercent)
                 {
-                    PlayWarningSound();        // Play warning sound if threshold exceeded
-                    ShowOrRepositionOverlay(); // Show or reposition overlay window
+                    PlayWarningSound();
+                    ShowOrRepositionOverlay();
                 }
                 else
                 {
-                    HideOverlay();             // Hide overlay if below threshold
+                    HideOverlay();
                 }
             });
         }
 
         // Updates visual bar to reflect current decibel level
-        // <param name="db">Measured decibel value</param>
-        private void UpdateBarLevel(double db)
+        // <param name="percent">Measured percent value</param>
+        private void UpdateBarLevel(double percent)
         {
-            const double maxDb = 70;
-            const double minDb = 0;
-            var percent = Math.Clamp((db - minDb) / (maxDb - minDb), 0, 1);
+            var ratio = Math.Clamp(percent / 100.0, 0, 1);
             var gridWidth = BarBackground.ActualWidth;
             if (gridWidth > 0)
-                BarLevel.Width = gridWidth * percent;
+                BarLevel.Width = gridWidth * ratio;
         }
 
         // Updates threshold line position in the visual bar
-        // <param name="threshold">Threshold decibel value</param>
-        private void UpdateThresholdLine(double threshold)
+        // <param name="thresholdPercent">Threshold percent value</param>
+        private void UpdateThresholdLine(double thresholdPercent)
         {
-            const double maxDb = 70;
-            const double minDb = 0;
+            const double maxPercent = 100;
+            const double minPercent = 0;
             var gridWidth = BarBackground.ActualWidth;
             if (gridWidth > 0)
             {
-                var thresholdPercent = Math.Clamp((threshold - minDb) / (maxDb - minDb), 0, 1);
-                var x = gridWidth * thresholdPercent;
+                var ratio = Math.Clamp((thresholdPercent - minPercent) / (maxPercent - minPercent), 0, 1);
+                var x = gridWidth * ratio;
                 ThresholdLine.X1 = x;
                 ThresholdLine.X2 = x;
                 ThresholdLine.Visibility = Visibility.Visible;
+                ThresholdValueLabel.Visibility = Visibility.Visible;
+
+                // Update threshold label value and position
+                ThresholdValueLabel.Text = $"{thresholdPercent:F0}%";
+                // Center the label horizontally above the threshold line
+                double labelWidth = ThresholdValueLabel.ActualWidth;
+                // If label width is not available yet, use a default estimate (e.g., 24)
+                if (labelWidth == 0) labelWidth = 24;
+                // Offset so label is centered above the line
+                double offset = x - (labelWidth / 2);
+                ThresholdValueLabel.RenderTransform = new TranslateTransform(offset, 0);
             }
         }
 
@@ -195,19 +219,16 @@ namespace DecibelMeter
             overlay.Left = selectedScreen.Bounds.Left / dpiX + (selectedScreen.Bounds.Width / dpiX - overlay.Width) / 2;
             overlay.Top = selectedScreen.Bounds.Top / dpiY + (selectedScreen.Bounds.Height / dpiY - overlay.Height) / 2;
 
-            if (!overlayShown)
-            {
-                overlay.Visibility = Visibility.Visible;
-                overlayShown = true;
-            }
+            overlay.CancelPendingHide(); // Ensures overlay stays visible and cancels fade-out
+            overlayShown = true;
         }
 
-        // Hides overlay window
+        // Hides overlay window with fade out effect
         private void HideOverlay()
         {
-            if (overlay != null)
+            if (overlay != null && overlay.Visibility == Visibility.Visible)
             {
-                overlay.Visibility = Visibility.Hidden;
+                overlay.FadeOutAndHide();
                 overlayShown = false;
             }
         }

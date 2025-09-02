@@ -24,23 +24,24 @@ namespace DecibelMeter
 
         private void OnDataAvailable(object? sender, WaveInEventArgs e)
         {
+            int samples = e.BytesRecorded / 2; // 16-bit mono
+            if (samples <= 0) return;
+
             double sum = 0;
-            int samples = e.BytesRecorded / 2; // 16-bit audio
             for (int i = 0; i < samples; i++)
             {
                 short sample = BitConverter.ToInt16(e.Buffer, i * 2);
-                double sample32 = sample / 32768.0;
+                double sample32 = sample / 32768.0; // -1..+1
                 sum += sample32 * sample32;
             }
 
-            double rms = Math.Sqrt(sum / samples);
-            double reference = 0.001; // adjust based on mic sensitivity
-            double decibels = 20 * Math.Log10(rms / reference);
+            double rms = Math.Sqrt(sum / samples);                // 0..1
+            const double fullScaleSineRms = 1.0 / 1.41421356237;   // ≈0.70710678
+            const double sensitivity = 2.5; // Increase or decrease as needed to adjust sensitivity
+            double percent = (rms / fullScaleSineRms) * 100.0 * sensitivity;
+            percent = Math.Clamp(percent, 0.0, 100.0);
 
-            // Clamp to 0 minimum for regualr decibel readings
-            decibels = Math.Max(decibels, 0);
-
-            VolumeMeasured?.Invoke(decibels);
+            VolumeMeasured?.Invoke(percent);
         }
 
         private int FindDeviceIndex(string deviceName)
@@ -56,8 +57,12 @@ namespace DecibelMeter
 
         public void Dispose()
         {
-            waveIn?.StopRecording();
-            waveIn?.Dispose();
+            if (waveIn != null)
+            {
+                waveIn.DataAvailable -= OnDataAvailable;
+                waveIn.StopRecording();
+                waveIn.Dispose();
+            }
         }
     }
 }

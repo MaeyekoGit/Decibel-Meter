@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 
 namespace DecibelMeter
@@ -6,6 +7,8 @@ namespace DecibelMeter
     // OverlayWindow displays a transparent overlay image on the screen
     public partial class OverlayWindow : Window
     {
+        private bool _pendingHide = false;
+
         // Initializes new instance of OverlayWindow with specified image
         // <param name="imageFileName"> Filename of overlay image to display</param>
         // Passed by MainWindow.xaml.cs as arg upon creating new instance
@@ -48,6 +51,32 @@ namespace DecibelMeter
             {
                 MessageBox.Show($"Failed to load overlay image resource:\n{ex.Message}");
             }
+        }
+
+        // Fades out the overlay over 0.5 second, then hides it
+        public void FadeOutAndHide()
+        {
+            _pendingHide = true;
+            var fade = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(0.5)));
+            fade.Completed += (s, e) =>
+            {
+                // Only hide if not re-shown in the meantime
+                if (_pendingHide)
+                {
+                    this.Visibility = Visibility.Hidden;
+                    this.Opacity = 1.0;
+                }
+            };
+            this.BeginAnimation(Window.OpacityProperty, fade);
+        }
+
+        // Call this when showing overlay to cancel pending hide
+        public void CancelPendingHide()
+        {
+            _pendingHide = false;
+            this.BeginAnimation(Window.OpacityProperty, null); // Cancel animation
+            this.Opacity = 1.0;
+            this.Visibility = Visibility.Visible;
         }
     }
 }
