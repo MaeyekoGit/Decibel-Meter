@@ -6,7 +6,7 @@ using NAudio.Wave;
 
 namespace DecibelMeter
 {
-    // MainWindow is the primary UI for the decibel meter application
+    // MainWindow is the primary UI for the percentage level meter application
     public partial class MainWindow : Window
     {
         private AudioService? audioService;
@@ -25,7 +25,7 @@ namespace DecibelMeter
             config = ConfigService.Load();
             PopulateDeviceList();    // Fill input device list
             PopulateMonitorList();   // Fill monitor list
-            ThresholdBox.Text = config.ThresholdDb.ToString(); // Set ThresholdBox to have value saved in config
+            ThresholdBox.Text = config.ThresholdPercent.ToString();        // Now percent
             VolumeBox.Text = config.WarningSoundVolume.ToString(); // Set VolumeBox to have value saved in config
             InitializeOverlay();     // Create overlay window (hidden by default)
             LoadLastWarningSound();  // Load last used warning sound if available
@@ -64,9 +64,7 @@ namespace DecibelMeter
         private void PopulateMonitorList()
         {
             foreach (var screen in Screen.AllScreens)
-            {
                 MonitorComboBox.Items.Add(screen.DeviceName);
-            }
             MonitorComboBox.SelectedIndex = 0;
         }
 
@@ -85,7 +83,7 @@ namespace DecibelMeter
         private void Start_Click(object sender, RoutedEventArgs e)
         {
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdDb = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;
+            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;          // Now percent (0-100)
             config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : 100;
             ConfigService.Save(config);
 
@@ -105,20 +103,19 @@ namespace DecibelMeter
             HideOverlay(); // Hide overlay window
         }
 
-        // Handles volume measurement events from AudioService
-        // <param name="db">Measured decibel value</param>
-        private void OnVolumeMeasured(double db)
+        // Receives percent (0-100)
+        private void OnVolumeMeasured(double percent)
         {
             Dispatcher.Invoke(() =>
             {
-                OutputText.Text = $"Level: {db:F1} dB";
-                double threshold = config.ThresholdDb;
-                OutputText.Foreground = db > threshold ? Brushes.Red : Brushes.White;
+                OutputText.Text = $"Level: {percent:F0}%";
+                double thresholdPercent = config.ThresholdPercent;
+                OutputText.Foreground = percent > thresholdPercent ? Brushes.Red : Brushes.White;
 
-                UpdateBarLevel(db);         // Update visual bar
-                UpdateThresholdLine(threshold); // Update threshold line
+                UpdateBarLevel(percent);         // Update visual bar
+                UpdateThresholdLine(thresholdPercent); // Update threshold line
 
-                if (db > threshold)
+                if (percent > thresholdPercent)
                 {
                     PlayWarningSound();        // Play warning sound if threshold exceeded
                     ShowOrRepositionOverlay(); // Show or reposition overlay window
@@ -131,28 +128,26 @@ namespace DecibelMeter
         }
 
         // Updates visual bar to reflect current decibel level
-        // <param name="db">Measured decibel value</param>
-        private void UpdateBarLevel(double db)
+        // <param name="percent">Measured percent value</param>
+        private void UpdateBarLevel(double percent)
         {
-            const double maxDb = 70;
-            const double minDb = 0;
-            var percent = Math.Clamp((db - minDb) / (maxDb - minDb), 0, 1);
+            var ratio = Math.Clamp(percent / 100.0, 0, 1);
             var gridWidth = BarBackground.ActualWidth;
             if (gridWidth > 0)
-                BarLevel.Width = gridWidth * percent;
+                BarLevel.Width = gridWidth * ratio;
         }
 
         // Updates threshold line position in the visual bar
-        // <param name="threshold">Threshold decibel value</param>
-        private void UpdateThresholdLine(double threshold)
+        // <param name="thresholdPercent">Threshold percent value</param>
+        private void UpdateThresholdLine(double thresholdPercent)
         {
-            const double maxDb = 70;
-            const double minDb = 0;
+            const double maxPercent = 100;
+            const double minPercent = 0;
             var gridWidth = BarBackground.ActualWidth;
             if (gridWidth > 0)
             {
-                var thresholdPercent = Math.Clamp((threshold - minDb) / (maxDb - minDb), 0, 1);
-                var x = gridWidth * thresholdPercent;
+                var ratio = Math.Clamp((thresholdPercent - minPercent) / (maxPercent - minPercent), 0, 1);
+                var x = gridWidth * ratio;
                 ThresholdLine.X1 = x;
                 ThresholdLine.X2 = x;
                 ThresholdLine.Visibility = Visibility.Visible;
