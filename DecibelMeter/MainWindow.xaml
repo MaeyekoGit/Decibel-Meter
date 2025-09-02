@@ -77,7 +77,7 @@
                 <TextBox x:Name="ThresholdBox"
                          Width="140"
                          HorizontalAlignment="Left"
-                         ToolTip="Trigger warning when level exceeds this percentage (0-100)"/>
+                         ToolTip="Trigger warning when average level exceeds this percentage (0-100)"/>
             </StackPanel>
 
             <StackPanel Grid.Column="2" HorizontalAlignment="Left">

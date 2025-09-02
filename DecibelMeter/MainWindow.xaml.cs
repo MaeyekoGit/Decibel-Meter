@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using System.Windows.Media;
 using DecibelMeter.Models;
 using NAudio.Wave;
+using System.Collections.Generic;
 
 namespace DecibelMeter
 {
@@ -17,6 +18,8 @@ namespace DecibelMeter
         private bool overlayShown = false;
         private string warningSoundPath = "";
         private bool isWarningPlaying = false;
+
+        private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
 
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
@@ -108,21 +111,32 @@ namespace DecibelMeter
         {
             Dispatcher.Invoke(() =>
             {
-                OutputText.Text = $"Level: {percent:F0}%";
+                // Add new value with timestamp
+                percentBuffer.Add((DateTime.UtcNow, percent));
+
+                // Remove values older than 2 seconds
+                DateTime cutoff = DateTime.UtcNow.AddSeconds(-2);
+                percentBuffer.RemoveAll(p => p.Timestamp < cutoff);
+
+                // Compute average over last 2 seconds
+                // Only if average is above for 2 seconds, trigger warning
+                double avgPercent = percentBuffer.Count > 0 ? percentBuffer.Average(p => p.Value) : 0.0;
+
+                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}%)";
                 double thresholdPercent = config.ThresholdPercent;
-                OutputText.Foreground = percent > thresholdPercent ? Brushes.Red : Brushes.White;
+                OutputText.Foreground = avgPercent > thresholdPercent ? Brushes.Red : Brushes.White;
 
-                UpdateBarLevel(percent);         // Update visual bar
-                UpdateThresholdLine(thresholdPercent); // Update threshold line
+                UpdateBarLevel(percent);
+                UpdateThresholdLine(thresholdPercent);
 
-                if (percent > thresholdPercent)
+                if (avgPercent > thresholdPercent)
                 {
-                    PlayWarningSound();        // Play warning sound if threshold exceeded
-                    ShowOrRepositionOverlay(); // Show or reposition overlay window
+                    PlayWarningSound();
+                    ShowOrRepositionOverlay();
                 }
                 else
                 {
-                    HideOverlay();             // Hide overlay if below threshold
+                    HideOverlay();
                 }
             });
         }
