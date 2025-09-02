@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Decibel Meter"
         Icon="logo.ico"
-        Height="430"
+        Height="440"
         Width="460"
         Background="#222"
         Foreground="#EEE"
@@ -132,35 +132,75 @@
                    Margin="0,16,0,8"
                    HorizontalAlignment="Left"/>
 
-        <!-- Visualization bar -->
-        <Border Grid.Row="6"
-                Height="38"
-                CornerRadius="6"
-                Background="{StaticResource BarBackgroundBrush}"
-                Padding="3"
-                BorderBrush="#555"
-                BorderThickness="1">
-            <Grid>
-                <Rectangle x:Name="BarBackground"
-                           RadiusX="4"
-                           RadiusY="4"
-                           Fill="Transparent"/>
-                <Rectangle x:Name="BarLevel"
-                           Fill="{StaticResource BarFillBrush}"
-                           RadiusX="4"
-                           RadiusY="4"
-                           Width="0"
-                           HorizontalAlignment="Left"/>
-                <Line x:Name="ThresholdLine"
-                      Stroke="Orange"
-                      StrokeThickness="3"
-                      Y1="0"
-                      Y2="38"
-                      X1="0"
-                      X2="0"
-                      SnapsToDevicePixels="True"/>
+        <!-- Visualization bar with labels above -->
+        <Grid Grid.Row="6">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Labels row -->
+                <RowDefinition Height="Auto"/> <!-- Bar row -->
+            </Grid.RowDefinitions>
+
+            <!-- Labels above the bar -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- 0% label -->
+                <TextBlock Text="0%" Foreground="#AAA" FontSize="12" FontWeight="Bold"
+                           VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="0,0,0,2"/>
+                <!-- 100% label -->
+                <TextBlock Text="100%" Foreground="#AAA" FontSize="12" FontWeight="Bold"
+                           Grid.Column="2" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,0,2"/>
+                <!-- Threshold label (positioned absolutely in code-behind) -->
+                <TextBlock x:Name="ThresholdValueLabel"
+                           Text="50%"
+                           Foreground="Orange"
+                           Background="#222"
+                           FontSize="12"
+                           FontWeight="Bold"
+                           VerticalAlignment="Bottom"
+                           Margin="0,0,0,2"
+                           RenderTransformOrigin="0.5,1"
+                           Visibility="Collapsed">
+                    <TextBlock.RenderTransform>
+                        <TranslateTransform x:Name="ThresholdValueLabelTransform"/>
+                    </TextBlock.RenderTransform>
+                </TextBlock>
             </Grid>
-        </Border>
+
+            <!-- The bar itself -->
+            <Border Grid.Row="1"
+                    Height="38"
+                    CornerRadius="6"
+                    Background="{StaticResource BarBackgroundBrush}"
+                    Padding="3"
+                    BorderBrush="#555"
+                    BorderThickness="1"
+                    VerticalAlignment="Bottom">
+                <Grid>
+                    <Rectangle x:Name="BarBackground"
+                               RadiusX="4"
+                               RadiusY="4"
+                               Fill="Transparent"/>
+                    <Rectangle x:Name="BarLevel"
+                               Fill="{StaticResource BarFillBrush}"
+                               RadiusX="4"
+                               RadiusY="4"
+                               Width="0"
+                               HorizontalAlignment="Left"/>
+                    <Line x:Name="ThresholdLine"
+                          Stroke="Orange"
+                          StrokeThickness="3"
+                          Y1="0"
+                          Y2="38"
+                          X1="0"
+                          X2="0"
+                          SnapsToDevicePixels="True"
+                          Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+        </Grid>
 
         <!-- Buttons -->
         <StackPanel Grid.Row="7"

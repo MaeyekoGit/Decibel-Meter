@@ -104,6 +104,10 @@ namespace DecibelMeter
             audioService = null;
             OutputText.Text = "Monitoring stopped.";
             HideOverlay(); // Hide overlay window
+
+            // Hide the threshold line
+            ThresholdLine.Visibility = Visibility.Collapsed;
+            ThresholdValueLabel.Visibility = Visibility.Collapsed;
         }
 
         // Receives percent (0-100)
@@ -165,6 +169,17 @@ namespace DecibelMeter
                 ThresholdLine.X1 = x;
                 ThresholdLine.X2 = x;
                 ThresholdLine.Visibility = Visibility.Visible;
+                ThresholdValueLabel.Visibility = Visibility.Visible;
+
+                // Update threshold label value and position
+                ThresholdValueLabel.Text = $"{thresholdPercent:F0}%";
+                // Center the label horizontally above the threshold line
+                double labelWidth = ThresholdValueLabel.ActualWidth;
+                // If label width is not available yet, use a default estimate (e.g., 24)
+                if (labelWidth == 0) labelWidth = 24;
+                // Offset so label is centered above the line
+                double offset = x - (labelWidth / 2);
+                ThresholdValueLabel.RenderTransform = new TranslateTransform(offset, 0);
             }
         }
 
