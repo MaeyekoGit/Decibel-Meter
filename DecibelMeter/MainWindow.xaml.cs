@@ -7,7 +7,6 @@ using System.Collections.Generic;
 
 namespace DecibelMeter
 {
-    // MainWindow is the primary UI for the percentage level meter application
     public partial class MainWindow : Window
     {
         private AudioService? audioService;
@@ -58,7 +57,6 @@ namespace DecibelMeter
             }
         }
 
-        // Populates input device ComboBox with available audio devices
         private void PopulateDeviceList()
         {
             for (int i = 0; i < WaveIn.DeviceCount; i++)
