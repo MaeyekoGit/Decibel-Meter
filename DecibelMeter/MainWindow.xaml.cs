@@ -7,6 +7,7 @@ using System.Collections.Generic;
 
 namespace DecibelMeter
 {
+    // MainWindow is the primary UI for the percentage level meter application
     public partial class MainWindow : Window
     {
         private AudioService? audioService;
@@ -19,31 +20,78 @@ namespace DecibelMeter
         private bool isWarningPlaying = false;
 
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
-        private string overlayImagePath = "Assets\\default_overlay.png"; // Default
+        private string overlayImagePath = "Assets\\default_overlay.png";
 
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
         {
-            InitializeComponent();
+            // Load config first
             config = ConfigService.Load();
-            PopulateDeviceList();    // Fill input device list
-            PopulateMonitorList();   // Fill monitor list
-            ThresholdBox.Text = config.ThresholdPercent.ToString();        // Now percent
-            VolumeBox.Text = config.WarningSoundVolume.ToString(); // Set VolumeBox to have value saved in config
-            InitializeOverlay();     // Create overlay window (hidden by default)
-            LoadLastWarningSound();  // Load last used warning sound if available
 
-            // Initialize overlay label with default file name
-            if (System.IO.File.Exists(overlayImagePath))
-                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
-            else
-                SelectedOverlayText.Text = "Default";
+            InitializeComponent();
+
+            // Apply config before wiring events to avoid premature handler execution
+            ApplyConfigToUi();
+
+            // Now wire events (approach 1)
+            ActivateSoundCheckBox.Checked += ActivateSoundCheckBox_Changed;
+            ActivateSoundCheckBox.Unchecked += ActivateSoundCheckBox_Changed;
+            ActivateOverlayCheckBox.Checked += ActivateOverlayCheckBox_Changed;
+            ActivateOverlayCheckBox.Unchecked += ActivateOverlayCheckBox_Changed;
+
+            InitializeOverlay();
+            LoadLastWarningSound();
         }
 
-        // Loads last used warning sound from config if available
+        private void ApplyConfigToUi()
+        {
+            // Apply config to UI
+            PopulateDeviceList();
+            PopulateMonitorList();
+            ThresholdBox.Text = config.ThresholdPercent.ToString();
+            VolumeBox.Text = config.WarningSoundVolume.ToString();
+
+            // Feature toggles
+            ActivateSoundCheckBox.IsChecked = config.EnableWarningSound;
+            ActivateOverlayCheckBox.IsChecked = config.EnableOverlay;
+
+            VolumeBox.Text = config.WarningSoundVolume.ToString();
+
+            // Overlay path
+            if (!string.IsNullOrWhiteSpace(config.OverlayImagePath) &&
+                System.IO.File.Exists(config.OverlayImagePath))
+            {
+                overlayImagePath = config.OverlayImagePath;
+                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
+            }
+
+            InitializeOverlay();
+            LoadLastWarningSound();
+
+            ApplySoundToggleUI();
+            ApplyOverlayToggleUI();
+        }
+
+        private void ApplySoundToggleUI()
+        {
+            bool enabled = ActivateSoundCheckBox.IsChecked == true;
+            SelectSoundButton.IsEnabled = enabled;
+            VolumeLabel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+            VolumeBox.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ApplyOverlayToggleUI()
+        {
+            bool enabled = ActivateOverlayCheckBox.IsChecked == true;
+            SelectOverlayButton.IsEnabled = enabled;
+            if (!enabled)
+                HideOverlay();
+        }
+
         private void LoadLastWarningSound()
         {
-            if (!string.IsNullOrEmpty(config.LastWarningSoundPath) && System.IO.File.Exists(config.LastWarningSoundPath))
+            if (!string.IsNullOrEmpty(config.LastWarningSoundPath) &&
+                System.IO.File.Exists(config.LastWarningSoundPath))
             {
                 warningSoundPath = config.LastWarningSoundPath;
                 SelectedSoundText.Text = System.IO.Path.GetFileName(warningSoundPath);
@@ -54,6 +102,10 @@ namespace DecibelMeter
                 warningAudioFile = new AudioFileReader(warningSoundPath);
                 warningOutputDevice = new WaveOutEvent();
                 warningOutputDevice.Init(warningAudioFile);
+            }
+            else
+            {
+                SelectedSoundText.Text = "No file selected";
             }
         }
 
@@ -73,12 +125,15 @@ namespace DecibelMeter
         {
             foreach (var screen in Screen.AllScreens)
                 MonitorComboBox.Items.Add(screen.DeviceName);
-            MonitorComboBox.SelectedIndex = 0;
+            MonitorComboBox.SelectedIndex = config.SelectedMonitor < Screen.AllScreens.Length
+                ? config.SelectedMonitor
+                : 0;
         }
 
         // Initializes overlay window with specified image, hidden by default
         private void InitializeOverlay()
         {
+            overlay?.Close();
             overlay = new OverlayWindow(overlayImagePath)
             {
                 Visibility = Visibility.Hidden
@@ -91,13 +146,14 @@ namespace DecibelMeter
         private void Start_Click(object sender, RoutedEventArgs e)
         {
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;          // Now percent (0-100)
+            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;
             config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : 100;
+            config.SelectedMonitor = MonitorComboBox.SelectedIndex;
             ConfigService.Save(config);
 
             audioService = new AudioService();
-            audioService.VolumeMeasured += OnVolumeMeasured; // Subscribe to volume events
-            audioService.Start(config.SelectedDevice);        // Start monitoring
+            audioService.VolumeMeasured += OnVolumeMeasured;
+            audioService.Start(config.SelectedDevice);
         }
 
         // Handles Stop Monitoring button click
@@ -108,7 +164,7 @@ namespace DecibelMeter
             audioService?.Dispose();
             audioService = null;
             OutputText.Text = "Monitoring stopped.";
-            HideOverlay(); // Hide overlay window
+            HideOverlay();
 
             // Hide the threshold line
             ThresholdLine.Visibility = Visibility.Collapsed;
@@ -120,7 +176,6 @@ namespace DecibelMeter
         {
             Dispatcher.Invoke(() =>
             {
-                // Add new value with timestamp
                 percentBuffer.Add((DateTime.UtcNow, percent));
 
                 // Remove values older than 2 seconds
@@ -140,8 +195,12 @@ namespace DecibelMeter
 
                 if (avgPercent > thresholdPercent)
                 {
-                    PlayWarningSound();
-                    ShowOrRepositionOverlay();
+                    if (config.EnableWarningSound)
+                        PlayWarningSound();
+                    if (config.EnableOverlay)
+                        ShowOrRepositionOverlay();
+                    else
+                        HideOverlay();
                 }
                 else
                 {
@@ -164,12 +223,10 @@ namespace DecibelMeter
         // <param name="thresholdPercent">Threshold percent value</param>
         private void UpdateThresholdLine(double thresholdPercent)
         {
-            const double maxPercent = 100;
-            const double minPercent = 0;
             var gridWidth = BarBackground.ActualWidth;
             if (gridWidth > 0)
             {
-                var ratio = Math.Clamp((thresholdPercent - minPercent) / (maxPercent - minPercent), 0, 1);
+                var ratio = Math.Clamp(thresholdPercent / 100.0, 0, 1);
                 var x = gridWidth * ratio;
                 ThresholdLine.X1 = x;
                 ThresholdLine.X2 = x;
@@ -188,17 +245,15 @@ namespace DecibelMeter
             }
         }
 
-        // Plays warning sound if not already playing
         private void PlayWarningSound()
         {
             if (!isWarningPlaying && warningOutputDevice != null)
             {
-                // Read and clamp volume from VolumeBox
-                float volume = 1.0f; // Default
+                float volume = 1.0f;
                 if (float.TryParse(VolumeBox.Text, out float volInput))
                 {
                     volInput = Math.Clamp(volInput, 0, 200);
-                    volume = volInput / 100f; // 100 = normal, 200 = double, 0 = silent
+                    volume = volInput / 100f;
                 }
                 warningAudioFile!.Volume = volume;
 
@@ -218,11 +273,14 @@ namespace DecibelMeter
         private void ShowOrRepositionOverlay()
         {
             if (overlay == null) return;
-            var selectedScreen = Screen.AllScreens[MonitorComboBox.SelectedIndex];
+            var selectedScreen = Screen.AllScreens[
+                MonitorComboBox.SelectedIndex >= 0 ? MonitorComboBox.SelectedIndex : 0];
             var (dpiX, dpiY) = GetDpi();
 
-            overlay.Left = selectedScreen.Bounds.Left / dpiX + (selectedScreen.Bounds.Width / dpiX - overlay.Width) / 2;
-            overlay.Top = selectedScreen.Bounds.Top / dpiY + (selectedScreen.Bounds.Height / dpiY - overlay.Height) / 2;
+            overlay.Left = selectedScreen.Bounds.Left / dpiX +
+                           (selectedScreen.Bounds.Width / dpiX - overlay.Width) / 2;
+            overlay.Top = selectedScreen.Bounds.Top / dpiY +
+                          (selectedScreen.Bounds.Height / dpiY - overlay.Height) / 2;
 
             overlay.CancelPendingHide(); // Ensures overlay stays visible and cancels fade-out
             overlayShown = true;
@@ -244,9 +302,8 @@ namespace DecibelMeter
         {
             var source = PresentationSource.FromVisual(this);
             if (source != null)
-            {
-                return (source.CompositionTarget.TransformToDevice.M11, source.CompositionTarget.TransformToDevice.M22);
-            }
+                return (source.CompositionTarget.TransformToDevice.M11,
+                        source.CompositionTarget.TransformToDevice.M22);
             return (1.0, 1.0);
         }
 
@@ -277,6 +334,38 @@ namespace DecibelMeter
             }
         }
 
+        private void SelectOverlayImage_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp"
+            };
+            if (openFileDialog.ShowDialog() == true)
+            {
+                overlayImagePath = openFileDialog.FileName;
+                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
+
+                config.OverlayImagePath = overlayImagePath;
+                ConfigService.Save(config);
+
+                InitializeOverlay();
+            }
+        }
+
+        private void ActivateSoundCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            config.EnableWarningSound = ActivateSoundCheckBox.IsChecked == true;
+            ApplySoundToggleUI();
+            ConfigService.Save(config);
+        }
+
+        private void ActivateOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            config.EnableOverlay = ActivateOverlayCheckBox.IsChecked == true;
+            ApplyOverlayToggleUI();
+            ConfigService.Save(config);
+        }
+
         // Handles window closing event, disposes resources and closes overlay
         // <param name="e">CancelEventArgs for closing event</param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -302,28 +391,6 @@ namespace DecibelMeter
             }
 
             base.OnClosing(e);
-        }
-        
-        private void SelectOverlayImage_Click(object sender, RoutedEventArgs e)
-        {
-            var openFileDialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp"
-            };
-            if (openFileDialog.ShowDialog() == true)
-            {
-                overlayImagePath = openFileDialog.FileName;
-                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
-
-                if (overlay != null)
-                {
-                    overlay.Close();
-                }
-                overlay = new OverlayWindow(overlayImagePath)
-                {
-                    Visibility = Visibility.Hidden
-                };
-            }
         }
     }
 }
