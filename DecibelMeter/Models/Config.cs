@@ -12,7 +12,12 @@ namespace DecibelMeter.Models
         public int ThresholdPercent { get; set; } = 50;
 
         public int SelectedMonitor { get; set; } = 0;
-        public string LastWarningSoundPath { get; set; } = "notificationsound.wav";
+
         public int WarningSoundVolume { get; set; } = 100;
+
+        // Default paths for sound and overlay
+        public string LastWarningSoundPath { get; set; } = "Assets/default_notificationsound.wav";
+
+        public string OverlayImagePath { get; set; } = "Assets/default_overlay.png";
     }
 }

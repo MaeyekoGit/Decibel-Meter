@@ -20,6 +20,7 @@ namespace DecibelMeter
         private bool isWarningPlaying = false;
 
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
+        private string overlayImagePath = "Assets\\default_overlay.png"; // Default
 
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
@@ -32,6 +33,12 @@ namespace DecibelMeter
             VolumeBox.Text = config.WarningSoundVolume.ToString(); // Set VolumeBox to have value saved in config
             InitializeOverlay();     // Create overlay window (hidden by default)
             LoadLastWarningSound();  // Load last used warning sound if available
+
+            // Initialize overlay label with default file name
+            if (System.IO.File.Exists(overlayImagePath))
+                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
+            else
+                SelectedOverlayText.Text = "Default";
         }
 
         // Loads last used warning sound from config if available
@@ -74,7 +81,7 @@ namespace DecibelMeter
         // Initializes overlay window with specified image, hidden by default
         private void InitializeOverlay()
         {
-            overlay = new OverlayWindow("overlay.png")
+            overlay = new OverlayWindow(overlayImagePath)
             {
                 Visibility = Visibility.Hidden
             };
@@ -297,6 +304,28 @@ namespace DecibelMeter
             }
 
             base.OnClosing(e);
+        }
+        
+        private void SelectOverlayImage_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp"
+            };
+            if (openFileDialog.ShowDialog() == true)
+            {
+                overlayImagePath = openFileDialog.FileName;
+                SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
+
+                if (overlay != null)
+                {
+                    overlay.Close();
+                }
+                overlay = new OverlayWindow(overlayImagePath)
+                {
+                    Visibility = Visibility.Hidden
+                };
+            }
         }
     }
 }

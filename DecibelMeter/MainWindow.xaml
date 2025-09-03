@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Decibel Meter"
         Icon="logo.ico"
-        Height="440"
+        Height="480"
         Width="460"
         Background="#222"
         Foreground="#EEE"
@@ -45,14 +45,15 @@
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/> <!-- 0 -->
+            <RowDefinition Height="Auto"/> <!-- 1 -->
+            <RowDefinition Height="Auto"/> <!-- 2 -->
+            <RowDefinition Height="Auto"/> <!-- 3 -->
+            <RowDefinition Height="Auto"/> <!-- 4 (NEW overlay image row) -->
+            <RowDefinition Height="Auto"/> <!-- 5 -->
+            <RowDefinition Height="*"/>    <!-- 6 -->
+            <RowDefinition Height="Auto"/> <!-- 7 -->
+            <RowDefinition Height="Auto"/> <!-- 8 -->
         </Grid.RowDefinitions>
 
         <!-- Device -->
@@ -71,7 +72,6 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Ensure left alignment -->
             <StackPanel Grid.Column="0" HorizontalAlignment="Left">
                 <TextBlock Text="Threshold (%) :" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
                 <TextBox x:Name="ThresholdBox"
@@ -105,8 +105,24 @@
                        ToolTip="Currently selected warning sound file"/>
         </StackPanel>
 
-        <!-- Warning sound volume (two-row grid for clean alignment) -->
-        <Grid Grid.Row="4" Margin="0,8,0,0">
+        <!-- Overlay image selection (NEW) -->
+        <StackPanel Grid.Row="4"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Margin="0,4,0,0">
+            <Button Content="Select Overlay Image"
+                    Click="SelectOverlayImage_Click"
+                    Width="170"/>
+            <TextBlock x:Name="SelectedOverlayText"
+                       Margin="8,4,0,0"
+                       VerticalAlignment="Center"
+                       Foreground="#BBB"
+                       Text="No file selected"
+                       ToolTip="Currently selected overlay image file"/>
+        </StackPanel>
+
+        <!-- Warning sound volume -->
+        <Grid Grid.Row="5" Margin="0,8,0,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -124,7 +140,7 @@
         </Grid>
 
         <!-- Level output -->
-        <TextBlock Grid.Row="5"
+        <TextBlock Grid.Row="6"
                    x:Name="OutputText"
                    FontSize="18"
                    FontWeight="Bold"
@@ -133,26 +149,22 @@
                    HorizontalAlignment="Left"/>
 
         <!-- Visualization bar with labels above -->
-        <Grid Grid.Row="6">
+        <Grid Grid.Row="7">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/> <!-- Labels row -->
-                <RowDefinition Height="Auto"/> <!-- Bar row -->
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Labels above the bar -->
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- 0% label -->
                 <TextBlock Text="0%" Foreground="#AAA" FontSize="12" FontWeight="Bold"
                            VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="0,0,0,2"/>
-                <!-- 100% label -->
                 <TextBlock Text="100%" Foreground="#AAA" FontSize="12" FontWeight="Bold"
                            Grid.Column="2" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,0,2"/>
-                <!-- Threshold label (positioned absolutely in code-behind) -->
                 <TextBlock x:Name="ThresholdValueLabel"
                            Text="50%"
                            Foreground="Orange"
@@ -169,7 +181,6 @@
                 </TextBlock>
             </Grid>
 
-            <!-- The bar itself -->
             <Border Grid.Row="1"
                     Height="38"
                     CornerRadius="6"
@@ -203,7 +214,7 @@
         </Grid>
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="7"
+        <StackPanel Grid.Row="8"
                     Orientation="Horizontal"
                     HorizontalAlignment="Center"
                     Margin="0,16,0,0">
