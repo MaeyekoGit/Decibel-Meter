@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.IO;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 
@@ -9,14 +10,12 @@ namespace DecibelMeter
     {
         private bool _pendingHide = false;
 
-        // Initializes new instance of OverlayWindow with specified image
-        // <param name="imageFileName"> Filename of overlay image to display</param>
-        // Passed by MainWindow.xaml.cs as arg upon creating new instance
-        public OverlayWindow(string imageFileName)
+        // Change constructor and LoadOverlayImage:
+        public OverlayWindow(string imageFilePath)
         {
             InitializeComponent();
-            ConfigureWindow();           // Set up window properties for overlay behavior
-            LoadOverlayImage(imageFileName); // Load and display overlay image
+            ConfigureWindow();
+            LoadOverlayImage(imageFilePath);
         }
 
         // Configure window properties to make it transparent + borderless overlay
@@ -31,25 +30,39 @@ namespace DecibelMeter
         }
 
         // Loads specified image and sets it as overlay image
-        private void LoadOverlayImage(string imageFileName)
+        private void LoadOverlayImage(string imageFilePath)
         {
             try
             {
-                // Build pack URI for the resource
-                var uri = new Uri($"pack://application:,,,/{imageFileName}", UriKind.Absolute);
-
-                var bmp = new BitmapImage();
+                BitmapImage bmp = new BitmapImage();
                 bmp.BeginInit();
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.UriSource = uri;
+
+                // Convert relative path to absolute if needed
+                string resolvedPath = imageFilePath;
+                if (!Path.IsPathRooted(imageFilePath))
+                {
+                    // Combine with the application's base directory
+                    resolvedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, imageFilePath);
+                }
+
+                if (File.Exists(resolvedPath))
+                {
+                    bmp.UriSource = new Uri(resolvedPath, UriKind.Absolute);
+                }
+                else
+                {
+                    MessageBox.Show($"Overlay image not found: {resolvedPath}");
+                    return;
+                }
+
                 bmp.EndInit();
                 bmp.Freeze();
-
                 OverlayImage.Source = bmp;
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to load overlay image resource:\n{ex.Message}");
+                MessageBox.Show($"Failed to load overlay image:\n{ex.Message}");
             }
         }
 

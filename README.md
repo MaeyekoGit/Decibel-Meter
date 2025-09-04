@@ -28,19 +28,23 @@ Originally created due to my headphones isolating too well and thus my speaking 
   - **Bar Visual Aids:** 0% and 100% labels above the bar, and a dynamic threshold value label positioned above the threshold indicator.
 
 - **Audio Warning:**  
-  - Play a custom warning sound when the threshold is crossed.
-  - Adjustable warning sound volume.
+  - Play a custom warning sound when the threshold is crossed.  
+  - Adjustable warning sound volume (0–200%).
+  - Volume label + input automatically hide when the sound feature is disabled for cleaner UI.  
 
 - **Overlay Alert:**  
-  - Displays a transparent, borderless overlay image on the selected monitor when the threshold is exceeded.
-  - Overlay image fades out smoothly when the level drops below the threshold.
-  - Overlay image is loaded from a WPF resource (e.g., `overlay.png`).
+  - Displays a transparent, borderless overlay image on the selected monitor when the threshold is exceeded.  
+  - Overlay image fades out smoothly when the level drops below the threshold.  
+  - You can select a custom overlay image; last selection is remembered.
+
+- **Always-Accessible File Selection:**  
+  Sound and overlay file selection buttons stay enabled regardless of feature toggles.
 
 - **Multi-Monitor Support:**  
   Choose which monitor displays the overlay.
 
 - **Persistent Settings:**  
-  Remembers last used device, threshold, monitor, overlay image, and warning sound.
+  Remembers last used device, threshold, monitor, overlay image, warning sound, volume, and feature toggles.
 
 ---
 
@@ -83,15 +87,11 @@ Originally created due to my headphones isolating too well and thus my speaking 
    Click "Start" to begin monitoring.  
    - When the average input exceeds threshold:
      - The overlay image appears on the selected monitor and fades out smoothly when the level drops.
-     - A warning sound plays.
+     - A warning sound plays (if enabled).
      - UI bar and text indicate the warning state.
 
 7. **Stop Monitoring:**  
    Click "Stop" to end monitoring and hide the overlay and threshold indicator.
-
-### Overlay Image
-
-- The overlay image is embedded as a WPF resource not meant to be changed by the user.
 
 ---
 
@@ -102,6 +102,8 @@ Settings are saved automatically and loaded on startup, including:
 - Threshold value (percent)
 - Selected monitor
 - Last used warning sound and volume
+- Overlay image path
+- Feature toggles (sound / overlay)
 
 ---
 
@@ -123,6 +125,22 @@ Settings are saved automatically and loaded on startup, including:
 - **Bar visual aids:** Added 0% and 100% labels above the bar, and a dynamic threshold value label positioned above the threshold indicator.
 - **Threshold indicator is hidden until monitoring starts** to avoid visual clutter.
 - **Numerous UI/UX overhaul/improvements** for clarity and usability.
+
+**Fixed bugs:**
+  - Fixed issue where overlay would not reappear if the threshold was crossed again after fading out.
+
+### Version 1.1.1
+
+**Improvements:**
+- File selection buttons (warning sound / overlay image) remain enabled even when their features are disabled.
+- Warning sound volume label + textbox now hide (collapse) instead of being disabled when sound is off.
+- Horizontal alignment adjusted so sound and overlay activation checkboxes line up consistently.
+- Overlay image selection clarified (user can provide custom image; persisted).
+- More robust initialization order prevents early checkbox event firing from causing errors.
+
+**Fixes:**
+- Resolved a `NullReferenceException` caused by checkbox events firing before controls/config were ready during window initialization.
+- Minor layout polish in sound and overlay sections.
 
 ---
 

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace DecibelMeter.Models
 {
@@ -12,7 +11,15 @@ namespace DecibelMeter.Models
         public int ThresholdPercent { get; set; } = 50;
 
         public int SelectedMonitor { get; set; } = 0;
-        public string LastWarningSoundPath { get; set; } = "notificationsound.wav";
+
         public int WarningSoundVolume { get; set; } = 100;
+
+        // Paths
+        public string LastWarningSoundPath { get; set; } = "Assets/default_notificationsound.wav";
+        public string OverlayImagePath { get; set; } = "Assets/default_overlay.png";
+
+        // Feature toggles
+        public bool EnableWarningSound { get; set; } = true;
+        public bool EnableOverlay { get; set; } = true;
     }
 }
