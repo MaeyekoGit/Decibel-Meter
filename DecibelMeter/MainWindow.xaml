@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Decibel Meter"
         Icon="logo.ico"
-        Height="520"
+        Height="550"
         Width="460"
         Background="#222"
         Foreground="#EEE"
@@ -46,21 +46,13 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <!-- 0 spacer -->
-            <RowDefinition Height="Auto"/>
-            <!-- 1 Device -->
-            <RowDefinition Height="Auto"/>
-            <!-- 2 Threshold + Monitor -->
-            <RowDefinition Height="Auto"/>
-            <!-- 3 Overlay -->
-            <RowDefinition Height="Auto"/>
-            <!-- 4 Warning Sound -->
-            <RowDefinition Height="*"/>
-            <!-- 5 Output -->
-            <RowDefinition Height="Auto"/>
-            <!-- 6 Bar -->
-            <RowDefinition Height="Auto"/>
-            <!-- 7 Buttons -->
+            <RowDefinition Height="Auto"/> <!-- Device -->
+            <RowDefinition Height="Auto"/> <!-- Threshold + Avg -->
+            <RowDefinition Height="Auto"/> <!-- Overlay -->
+            <RowDefinition Height="Auto"/> <!-- Warning Sound -->
+            <RowDefinition Height="*"/>    <!-- Output -->
+            <RowDefinition Height="Auto"/> <!-- Bar -->
+            <RowDefinition Height="Auto"/> <!-- Buttons -->
         </Grid.RowDefinitions>
 
         <!-- Device -->
@@ -71,7 +63,7 @@
                   Margin="0,28,0,8"
                   ToolTip="Select the capture/input device"/>
 
-        <!-- Threshold + Monitor -->
+        <!-- Threshold + Average Window -->
         <Grid Grid.Row="2" Margin="0,4,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -79,18 +71,19 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" HorizontalAlignment="Left">
-                <TextBlock Text="Threshold (%) :" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
+                <TextBlock Text="Threshold (%):" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
                 <TextBox x:Name="ThresholdBox"
                          Width="140"
                          HorizontalAlignment="Left"
                          ToolTip="Trigger warning when average level exceeds this percentage (0-100)"/>
             </StackPanel>
             <StackPanel Grid.Column="2" HorizontalAlignment="Left">
-                <TextBlock Text="Monitor:" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
-                <ComboBox x:Name="MonitorComboBox"
-                          Width="140"
-                          HorizontalAlignment="Left"
-                          ToolTip="Screen where the overlay is shown"/>
+                <TextBlock Text="Average Window (s):" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
+                <TextBox x:Name="AverageWindowBox"
+                         Width="140"
+                         HorizontalAlignment="Left"
+                         TextChanged="AverageWindowBox_TextChanged"
+                         ToolTip="Seconds of rolling average."/>
             </StackPanel>
         </Grid>
 
@@ -106,27 +99,41 @@
                     <ColumnDefinition Width="14"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Grid.ColumnSpan="2">
+
+                <!-- Left: file selection -->
+                <StackPanel Grid.Column="0">
                     <Button x:Name="SelectOverlayButton"
                             Content="Select Overlay Image"
                             Click="SelectOverlayImage_Click"
                             Width="170"
                             HorizontalAlignment="Left"/>
+                    <TextBlock Text="Current Image:" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="SelectedOverlayText"
-                               Margin="0,4,0,0"
+                               Margin="0,0,0,4"
                                Foreground="#BBB"
                                Text="No file selected"
                                TextTrimming="CharacterEllipsis"
                                ToolTip="Currently selected overlay image file"/>
                 </StackPanel>
-                <CheckBox Grid.Column="2"
-                          x:Name="ActivateOverlayCheckBox"
-                          Content="Activate Overlay"
-                          Margin="0,6,0,0"
-                          VerticalAlignment="Top"
-                          Foreground="#EEE"
-                          Checked="ActivateOverlayCheckBox_Changed"
-                          Unchecked="ActivateOverlayCheckBox_Changed"/>
+
+                <!-- Right: activation + monitor (monitor now beneath checkbox) -->
+                <StackPanel Grid.Column="2">
+                    <CheckBox x:Name="ActivateOverlayCheckBox"
+                              Content="Activate Overlay"
+                              Margin="0,0,0,0"
+                              VerticalAlignment="Top"
+                              Foreground="#EEE"
+                              Checked="ActivateOverlayCheckBox_Changed"
+                              Unchecked="ActivateOverlayCheckBox_Changed"/>
+                    <TextBlock x:Name="MonitorLabel"
+                               Text="Monitor:"
+                               Style="{StaticResource LabelStyle}"
+                               Margin="0,8,0,2"/>
+                    <ComboBox x:Name="MonitorComboBox"
+                              Width="140"
+                              HorizontalAlignment="Left"
+                              ToolTip="Screen where the overlay is shown"/>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -143,38 +150,42 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Grid.ColumnSpan="2">
+                <!-- Left: sound file selection -->
+                <StackPanel Grid.Column="0">
                     <Button x:Name="SelectSoundButton"
                             Content="Select Warning Sound"
                             Click="SelectSound_Click"
                             Width="170"
                             HorizontalAlignment="Left"/>
+                    <TextBlock Text="Current Sound:" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="SelectedSoundText"
-                               Margin="0,4,0,4"
+                               Margin="0,0,0,4"
                                Foreground="#BBB"
                                Text="No file selected"
                                TextTrimming="CharacterEllipsis"
                                ToolTip="Currently selected warning sound file"/>
+                </StackPanel>
+
+                <!-- Right: activation + volume (volume now beneath checkbox) -->
+                <StackPanel Grid.Column="2">
+                    <CheckBox x:Name="ActivateSoundCheckBox"
+                              Content="Activate Sound"
+                              Margin="0,0,0,0"
+                              VerticalAlignment="Top"
+                              Height="16"
+                              Foreground="#EEE"
+                              Checked="ActivateSoundCheckBox_Changed"
+                              Unchecked="ActivateSoundCheckBox_Changed"/>
                     <TextBlock x:Name="VolumeLabel"
                                Text="Warning Sound Volume (0-200):"
-                               Margin="0,4,0,2"
+                               Margin="0,8,0,2"
                                FontWeight="SemiBold"/>
                     <TextBox x:Name="VolumeBox"
                              Width="140"
                              Text="100"
                              HorizontalAlignment="Left"
-                             ToolTip="Playback volume multiplier for the warning sound"/>
+                             ToolTip="Playback volume multiplier for the warning sound (0-200%)"/>
                 </StackPanel>
-
-                <CheckBox Grid.Column="2"
-                          x:Name="ActivateSoundCheckBox"
-                          Content="Activate Sound"
-                          Margin="0,6,0,0"
-                          VerticalAlignment="Top"
-                          Height="16"
-                          Foreground="#EEE"
-                          Checked="ActivateSoundCheckBox_Changed"
-                          Unchecked="ActivateSoundCheckBox_Changed"/>
             </Grid>
         </Border>
 

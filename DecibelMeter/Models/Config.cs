@@ -14,6 +14,9 @@ namespace DecibelMeter.Models
 
         public int WarningSoundVolume { get; set; } = 100;
 
+        // Rolling average window in seconds (fractional allowed)
+        public double AverageWindowSeconds { get; set; } = 2.0;
+
         // Paths
         public string LastWarningSoundPath { get; set; } = "Assets/default_notificationsound.wav";
         public string OverlayImagePath { get; set; } = "Assets/default_overlay.png";

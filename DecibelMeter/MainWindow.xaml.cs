@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.Globalization;
+using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Media;
 using DecibelMeter.Models;
@@ -21,6 +22,11 @@ namespace DecibelMeter
 
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
         private string overlayImagePath = "Assets\\default_overlay.png";
+
+        private const double MinAverageWindowSeconds = 0.1;
+        private const double MaxAverageWindowSeconds = 30.0;
+        private readonly Brush _validBorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
+        private readonly Brush _invalidBorderBrush = new SolidColorBrush(Color.FromRgb(170, 51, 51));
 
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
@@ -48,8 +54,9 @@ namespace DecibelMeter
             // Apply config to UI
             PopulateDeviceList();
             PopulateMonitorList();
-            ThresholdBox.Text = config.ThresholdPercent.ToString();
-            VolumeBox.Text = config.WarningSoundVolume.ToString();
+            ThresholdBox.Text = config.ThresholdPercent.ToString(CultureInfo.InvariantCulture);
+            AverageWindowBox.Text = config.AverageWindowSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+            VolumeBox.Text = config.WarningSoundVolume.ToString(CultureInfo.InvariantCulture);
 
             // Feature toggles
             ActivateSoundCheckBox.IsChecked = config.EnableWarningSound;
@@ -62,6 +69,7 @@ namespace DecibelMeter
 
             // Hide/show volume controls based on sound activation
             UpdateVolumeVisibility(config.EnableWarningSound);
+            UpdateOverlayDependentVisibility(config.EnableOverlay);
 
             if (!string.IsNullOrWhiteSpace(config.OverlayImagePath) &&
                 System.IO.File.Exists(config.OverlayImagePath))
@@ -80,6 +88,13 @@ namespace DecibelMeter
             var vis = visible ? Visibility.Visible : Visibility.Collapsed;
             VolumeLabel.Visibility = vis;
             VolumeBox.Visibility = vis;
+        }
+
+        private void UpdateOverlayDependentVisibility(bool overlayEnabled)
+        {
+            var vis = overlayEnabled ? Visibility.Visible : Visibility.Collapsed;
+            MonitorLabel.Visibility = vis;
+            MonitorComboBox.Visibility = vis;
         }
 
         private void LoadLastWarningSound()
@@ -105,6 +120,7 @@ namespace DecibelMeter
 
         private void PopulateDeviceList()
         {
+            DeviceComboBox.Items.Clear();
             for (int i = 0; i < WaveIn.DeviceCount; i++)
             {
                 var caps = WaveIn.GetCapabilities(i);
@@ -117,6 +133,7 @@ namespace DecibelMeter
         // Populates monitor ComboBox with available screens
         private void PopulateMonitorList()
         {
+            MonitorComboBox.Items.Clear();
             foreach (var screen in Screen.AllScreens)
                 MonitorComboBox.Items.Add(screen.DeviceName);
             MonitorComboBox.SelectedIndex = config.SelectedMonitor < Screen.AllScreens.Length
@@ -140,9 +157,10 @@ namespace DecibelMeter
         private void Start_Click(object sender, RoutedEventArgs e)
         {
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;
-            config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : 100;
+            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : config.ThresholdPercent;
+            config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : config.WarningSoundVolume;
             config.SelectedMonitor = MonitorComboBox.SelectedIndex;
+            // Average window already updated live via TextChanged if valid
             ConfigService.Save(config);
 
             audioService = new AudioService();
@@ -170,17 +188,19 @@ namespace DecibelMeter
         {
             Dispatcher.Invoke(() =>
             {
+                double windowSec = ClampAverageWindow(config.AverageWindowSeconds);
+                // Retain up to MaxAverageWindowSeconds seconds for possible future expansion
                 percentBuffer.Add((DateTime.UtcNow, percent));
+                DateTime retentionCutoff = DateTime.UtcNow - TimeSpan.FromSeconds(MaxAverageWindowSeconds);
+                percentBuffer.RemoveAll(p => p.Timestamp < retentionCutoff);
 
-                // Remove values older than 2 seconds
-                DateTime cutoff = DateTime.UtcNow.AddSeconds(-2);
-                percentBuffer.RemoveAll(p => p.Timestamp < cutoff);
+                DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(windowSec);
+                double avgPercent = 0.0;
+                var slice = percentBuffer.Where(p => p.Timestamp >= cutoff).ToList();
+                if (slice.Count > 0)
+                    avgPercent = slice.Average(p => p.Value);
 
-                // Compute average over last 2 seconds
-                // Only if average is above for 2 seconds, trigger warning
-                double avgPercent = percentBuffer.Count > 0 ? percentBuffer.Average(p => p.Value) : 0.0;
-
-                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}%)";
+                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}% / {windowSec:0.###}s)";
                 double thresholdPercent = config.ThresholdPercent;
                 OutputText.Foreground = avgPercent > thresholdPercent ? Brushes.Red : Brushes.White;
 
@@ -202,6 +222,9 @@ namespace DecibelMeter
                 }
             });
         }
+
+        private static double ClampAverageWindow(double value) =>
+            Math.Clamp(value <= 0 ? 2.0 : value, MinAverageWindowSeconds, MaxAverageWindowSeconds);
 
         // Updates visual bar to reflect current decibel level
         // <param name="percent">Measured percent value</param>
@@ -356,9 +379,28 @@ namespace DecibelMeter
         private void ActivateOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             config.EnableOverlay = ActivateOverlayCheckBox.IsChecked == true;
+            UpdateOverlayDependentVisibility(config.EnableOverlay);
             if (!config.EnableOverlay)
                 HideOverlay();
             ConfigService.Save(config);
+        }
+
+        private void AverageWindowBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            string text = AverageWindowBox.Text.Trim();
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+                value >= MinAverageWindowSeconds && value <= MaxAverageWindowSeconds)
+            {
+                AverageWindowBox.BorderBrush = _validBorderBrush;
+                AverageWindowBox.ToolTip = $"Rolling average window in seconds (current: {value:0.###})";
+                config.AverageWindowSeconds = value;
+                ConfigService.Save(config);
+            }
+            else
+            {
+                AverageWindowBox.BorderBrush = _invalidBorderBrush;
+                AverageWindowBox.ToolTip = $"Enter a number between {MinAverageWindowSeconds} and {MaxAverageWindowSeconds} (e.g. 0.5, 2, 2.5)";
+            }
         }
 
         // Handles window closing event, disposes resources and closes overlay
