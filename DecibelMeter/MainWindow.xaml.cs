@@ -55,37 +55,31 @@ namespace DecibelMeter
             ActivateSoundCheckBox.IsChecked = config.EnableWarningSound;
             ActivateOverlayCheckBox.IsChecked = config.EnableOverlay;
 
-            VolumeBox.Text = config.WarningSoundVolume.ToString();
+            // Always keep these interactive
+            // VolumeBox.IsEnabled = config.EnableWarningSound;  (removed)
+            SelectSoundButton.IsEnabled = true;
+            SelectOverlayButton.IsEnabled = true;
 
-            // Overlay path
+            // Hide/show volume controls based on sound activation
+            UpdateVolumeVisibility(config.EnableWarningSound);
+
             if (!string.IsNullOrWhiteSpace(config.OverlayImagePath) &&
                 System.IO.File.Exists(config.OverlayImagePath))
             {
                 overlayImagePath = config.OverlayImagePath;
                 SelectedOverlayText.Text = System.IO.Path.GetFileName(overlayImagePath);
             }
-
-            InitializeOverlay();
-            LoadLastWarningSound();
-
-            ApplySoundToggleUI();
-            ApplyOverlayToggleUI();
+            else
+            {
+                SelectedOverlayText.Text = "No file selected";
+            }
         }
 
-        private void ApplySoundToggleUI()
+        private void UpdateVolumeVisibility(bool visible)
         {
-            bool enabled = ActivateSoundCheckBox.IsChecked == true;
-            SelectSoundButton.IsEnabled = enabled;
-            VolumeLabel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-            VolumeBox.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        private void ApplyOverlayToggleUI()
-        {
-            bool enabled = ActivateOverlayCheckBox.IsChecked == true;
-            SelectOverlayButton.IsEnabled = enabled;
-            if (!enabled)
-                HideOverlay();
+            var vis = visible ? Visibility.Visible : Visibility.Collapsed;
+            VolumeLabel.Visibility = vis;
+            VolumeBox.Visibility = vis;
         }
 
         private void LoadLastWarningSound()
@@ -355,14 +349,15 @@ namespace DecibelMeter
         private void ActivateSoundCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             config.EnableWarningSound = ActivateSoundCheckBox.IsChecked == true;
-            ApplySoundToggleUI();
+            UpdateVolumeVisibility(config.EnableWarningSound);
             ConfigService.Save(config);
         }
 
         private void ActivateOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             config.EnableOverlay = ActivateOverlayCheckBox.IsChecked == true;
-            ApplyOverlayToggleUI();
+            if (!config.EnableOverlay)
+                HideOverlay();
             ConfigService.Save(config);
         }
 
