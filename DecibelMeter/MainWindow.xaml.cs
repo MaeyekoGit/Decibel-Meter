@@ -1,9 +1,9 @@
-﻿using System.Windows;
-using System.Windows.Forms;
+﻿using System.Globalization;
+using System.Windows;
 using System.Windows.Media;
 using DecibelMeter.Models;
 using NAudio.Wave;
-using System.Collections.Generic;
+using WinForms = System.Windows.Forms;
 
 namespace DecibelMeter
 {
@@ -15,54 +15,110 @@ namespace DecibelMeter
         private WaveOutEvent? warningOutputDevice;
         private AudioFileReader? warningAudioFile;
         private OverlayWindow? overlay;
-        private bool overlayShown = false;
-        private string warningSoundPath = "";
         private bool isWarningPlaying = false;
 
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
         private string overlayImagePath = "Assets\\default_overlay.png";
 
+        // Validation ranges
+        private const int MinThreshold = 0; // Min threshold percent
+        private const int MaxThreshold = 100; // Max threshold percent
+        private const double MinAvg = 0.0; // Min average window (0 = instant)
+        private const double MaxAvg = 5.0; // Max average window in seconds
+        private const int MinVolume = 0; // Min volume percent
+        private const int MaxVolume = 200; // Max volume percent (200% allowed)
+
+        // Validation state
+        private bool _thresholdValid = true;
+        private bool _avgValid = true;
+        private bool _volumeValid = true;
+
+        // Brushes for valid/invalid textbox borders
+        private readonly Brush _validBorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
+        private readonly Brush _invalidBorderBrush = new SolidColorBrush(Color.FromRgb(170, 51, 51));
+
+        // Prevent validation-triggered saves during initial UI population
+        private bool _initializing = true;
+
+        // Convenience flag indicating monitoring state
+        private bool IsMonitoring => audioService != null;
+
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
         {
-            // Load config first
+            // Load config first to ensure event handlers do not see null state
             config = ConfigService.Load();
+
+            // Clamp persisted average window to new allowed range if prior versions exceeded it
+            if (config.AverageWindowSeconds > MaxAvg)
+            {
+                config.AverageWindowSeconds = MaxAvg;
+                ConfigService.Save(config);
+            }
+            if (config.AverageWindowSeconds < 0)
+            {
+                config.AverageWindowSeconds = 0;
+                ConfigService.Save(config);
+            }
 
             InitializeComponent();
 
-            // Apply config before wiring events to avoid premature handler execution
+            // Apply loaded config values to UI controls
             ApplyConfigToUi();
 
-            // Now wire events (approach 1)
+            // Wire feature toggle handlers (ensures they cannot execute before config load)
             ActivateSoundCheckBox.Checked += ActivateSoundCheckBox_Changed;
             ActivateSoundCheckBox.Unchecked += ActivateSoundCheckBox_Changed;
             ActivateOverlayCheckBox.Checked += ActivateOverlayCheckBox_Changed;
             ActivateOverlayCheckBox.Unchecked += ActivateOverlayCheckBox_Changed;
 
+            // Ensure input validation handlers are attached (defensive detach first)
+            VolumeBox.TextChanged -= VolumeBox_TextChanged;
+            VolumeBox.TextChanged += VolumeBox_TextChanged;
+            VolumeBox.LostFocus -= VolumeBox_LostFocus;
+            VolumeBox.LostFocus += VolumeBox_LostFocus;
+
+            ThresholdBox.TextChanged -= ThresholdBox_TextChanged;
+            ThresholdBox.TextChanged += ThresholdBox_TextChanged;
+
+            AverageWindowBox.TextChanged -= AverageWindowBox_TextChanged;
+            AverageWindowBox.TextChanged += AverageWindowBox_TextChanged;
+
+            // Prepare overlay (hidden by default) + load previous warning sound if present
             InitializeOverlay();
             LoadLastWarningSound();
+
+            // Perform initial validation to sync visual state and Start button
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
+
+            _initializing = false; // Allow subsequent validation to persist changes
         }
 
+        // Applies persisted configuration values to UI controls
         private void ApplyConfigToUi()
         {
-            // Apply config to UI
             PopulateDeviceList();
             PopulateMonitorList();
-            ThresholdBox.Text = config.ThresholdPercent.ToString();
-            VolumeBox.Text = config.WarningSoundVolume.ToString();
+            ThresholdBox.Text = config.ThresholdPercent.ToString(CultureInfo.InvariantCulture);
+            AverageWindowBox.Text = config.AverageWindowSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+            VolumeBox.Text = config.WarningSoundVolume.ToString(CultureInfo.InvariantCulture);
 
-            // Feature toggles
             ActivateSoundCheckBox.IsChecked = config.EnableWarningSound;
             ActivateOverlayCheckBox.IsChecked = config.EnableOverlay;
 
-            // Always keep these interactive
-            // VolumeBox.IsEnabled = config.EnableWarningSound;  (removed)
+            // Always allow changing file selection even when feature disabled
             SelectSoundButton.IsEnabled = true;
             SelectOverlayButton.IsEnabled = true;
 
-            // Hide/show volume controls based on sound activation
+            // Hide/show volume controls based on checkbox activation
             UpdateVolumeVisibility(config.EnableWarningSound);
+            UpdateOverlayDependentVisibility(config.EnableOverlay);
 
+            // Show selected overlay image (or placeholder if missing)
             if (!string.IsNullOrWhiteSpace(config.OverlayImagePath) &&
                 System.IO.File.Exists(config.OverlayImagePath))
             {
@@ -75,6 +131,16 @@ namespace DecibelMeter
             }
         }
 
+        // Enables/disables start / stop buttons based on monitoring & validation state
+        private void UpdateMonitoringButtons()
+        {
+            if (StartMonitoringButton != null)
+                StartMonitoringButton.IsEnabled = !IsMonitoring && AllInputsValid();
+            if (StopMonitoringButton != null)
+                StopMonitoringButton.IsEnabled = IsMonitoring;
+        }
+
+        // Shows or hides the volume controls depending on sound feature toggle
         private void UpdateVolumeVisibility(bool visible)
         {
             var vis = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -82,18 +148,26 @@ namespace DecibelMeter
             VolumeBox.Visibility = vis;
         }
 
+        // Shows or hides overlay monitor selection based on overlay feature toggle
+        private void UpdateOverlayDependentVisibility(bool overlayEnabled)
+        {
+            var vis = overlayEnabled ? Visibility.Visible : Visibility.Collapsed;
+            MonitorLabel.Visibility = vis;
+            MonitorComboBox.Visibility = vis;
+        }
+
+        // Loads previously used warning sound and prepares playback chain if file exists
         private void LoadLastWarningSound()
         {
             if (!string.IsNullOrEmpty(config.LastWarningSoundPath) &&
                 System.IO.File.Exists(config.LastWarningSoundPath))
             {
-                warningSoundPath = config.LastWarningSoundPath;
-                SelectedSoundText.Text = System.IO.Path.GetFileName(warningSoundPath);
+                SelectedSoundText.Text = System.IO.Path.GetFileName(config.LastWarningSoundPath);
 
                 warningAudioFile?.Dispose();
                 warningOutputDevice?.Dispose();
 
-                warningAudioFile = new AudioFileReader(warningSoundPath);
+                warningAudioFile = new AudioFileReader(config.LastWarningSoundPath);
                 warningOutputDevice = new WaveOutEvent();
                 warningOutputDevice.Init(warningAudioFile);
             }
@@ -103,8 +177,10 @@ namespace DecibelMeter
             }
         }
 
+        // Populates capture device list from available input devices
         private void PopulateDeviceList()
         {
+            DeviceComboBox.Items.Clear();
             for (int i = 0; i < WaveIn.DeviceCount; i++)
             {
                 var caps = WaveIn.GetCapabilities(i);
@@ -114,12 +190,13 @@ namespace DecibelMeter
                 DeviceComboBox.SelectedItem = config.SelectedDevice;
         }
 
-        // Populates monitor ComboBox with available screens
+        // Populates monitor selection with available screens
         private void PopulateMonitorList()
         {
-            foreach (var screen in Screen.AllScreens)
+            MonitorComboBox.Items.Clear();
+            foreach (var screen in WinForms.Screen.AllScreens)
                 MonitorComboBox.Items.Add(screen.DeviceName);
-            MonitorComboBox.SelectedIndex = config.SelectedMonitor < Screen.AllScreens.Length
+            MonitorComboBox.SelectedIndex = config.SelectedMonitor < WinForms.Screen.AllScreens.Length
                 ? config.SelectedMonitor
                 : 0;
         }
@@ -134,60 +211,100 @@ namespace DecibelMeter
             };
         }
 
-        // Handles Start Monitoring button click
-        // <param name="sender">Button that was clicked</param>
-        // <param name="e">Event args</param>
+        // Handles Start Monitoring button click and begins capturing levels
         private void Start_Click(object sender, RoutedEventArgs e)
         {
+            if (IsMonitoring)
+                return;
+
+            if (!AllInputsValid())
+            {
+                System.Windows.MessageBox.Show("Cannot start monitoring. Fix invalid inputs.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Final validation commit before start
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : 60;
-            config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : 100;
             config.SelectedMonitor = MonitorComboBox.SelectedIndex;
             ConfigService.Save(config);
 
             audioService = new AudioService();
             audioService.VolumeMeasured += OnVolumeMeasured;
-            audioService.Start(config.SelectedDevice);
+
+            try
+            {
+                audioService.Start(config.SelectedDevice);
+            }
+            catch
+            {
+                audioService.Dispose();
+                audioService = null;
+                throw;
+            }
+
+            UpdateMonitoringButtons();
         }
 
-        // Handles Stop Monitoring button click
-        // <param name="sender">Button that was clicked</param>
-        // <param name="e">Event args</param>
+        // Handles Stop Monitoring button click and ends capture session
         private void Stop_Click(object sender, RoutedEventArgs e)
         {
             audioService?.Dispose();
             audioService = null;
             OutputText.Text = "Monitoring stopped.";
             HideOverlay();
-
-            // Hide the threshold line
             ThresholdLine.Visibility = Visibility.Collapsed;
             ThresholdValueLabel.Visibility = Visibility.Collapsed;
+
+            UpdateMonitoringButtons();
         }
 
-        // Receives percent (0-100)
+        // Called when AudioService reports a new instantaneous volume percentage
         private void OnVolumeMeasured(double percent)
         {
             Dispatcher.Invoke(() =>
             {
+                double windowSec = Math.Clamp(config.AverageWindowSeconds, MinAvg, MaxAvg);
+
+                // Add new sample
                 percentBuffer.Add((DateTime.UtcNow, percent));
 
-                // Remove values older than 2 seconds
-                DateTime cutoff = DateTime.UtcNow.AddSeconds(-2);
-                percentBuffer.RemoveAll(p => p.Timestamp < cutoff);
+                // Retain only samples within max retention horizon
+                DateTime retentionCutoff = DateTime.UtcNow - TimeSpan.FromSeconds(MaxAvg);
+                percentBuffer.RemoveAll(p => p.Timestamp < retentionCutoff);
 
-                // Compute average over last 2 seconds
-                // Only if average is above for 2 seconds, trigger warning
-                double avgPercent = percentBuffer.Count > 0 ? percentBuffer.Average(p => p.Value) : 0.0;
+                // Compute average over configured window (or use instant if zero)
+                double avgPercent;
+                if (windowSec <= 0.0000001)
+                {
+                    avgPercent = percent;
+                }
+                else
+                {
+                    DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(windowSec);
+                    var slice = percentBuffer.Where(p => p.Timestamp >= cutoff).ToList();
+                    avgPercent = slice.Count > 0 ? slice.Average(p => p.Value) : percent;
+                }
 
-                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}%)";
+                // Update textual feedback
+                OutputText.Text = windowSec <= 0.0000001
+                    ? $"Level: {percent:F0}% (Instant)"
+                    : $"Level: {percent:F0}% (Avg: {avgPercent:F0}% / {windowSec:0.###}s)";
+
                 double thresholdPercent = config.ThresholdPercent;
                 OutputText.Foreground = avgPercent > thresholdPercent ? Brushes.Red : Brushes.White;
 
+                // Update visual bar + threshold line
                 UpdateBarLevel(percent);
                 UpdateThresholdLine(thresholdPercent);
 
-                if (avgPercent > thresholdPercent)
+                // Handle warning triggering logic
+                bool over = avgPercent > thresholdPercent;
+                if (over)
                 {
                     if (config.EnableWarningSound)
                         PlayWarningSound();
@@ -203,8 +320,7 @@ namespace DecibelMeter
             });
         }
 
-        // Updates visual bar to reflect current decibel level
-        // <param name="percent">Measured percent value</param>
+        // Updates visual bar width to reflect current level
         private void UpdateBarLevel(double percent)
         {
             var ratio = Math.Clamp(percent / 100.0, 0, 1);
@@ -213,8 +329,7 @@ namespace DecibelMeter
                 BarLevel.Width = gridWidth * ratio;
         }
 
-        // Updates threshold line position in the visual bar
-        // <param name="thresholdPercent">Threshold percent value</param>
+        // Updates threshold line and label position/value
         private void UpdateThresholdLine(double thresholdPercent)
         {
             var gridWidth = BarBackground.ActualWidth;
@@ -227,18 +342,15 @@ namespace DecibelMeter
                 ThresholdLine.Visibility = Visibility.Visible;
                 ThresholdValueLabel.Visibility = Visibility.Visible;
 
-                // Update threshold label value and position
                 ThresholdValueLabel.Text = $"{thresholdPercent:F0}%";
-                // Center the label horizontally above the threshold line
                 double labelWidth = ThresholdValueLabel.ActualWidth;
-                // If label width is not available yet, use a default estimate (e.g., 24)
                 if (labelWidth == 0) labelWidth = 24;
-                // Offset so label is centered above the line
                 double offset = x - (labelWidth / 2);
                 ThresholdValueLabel.RenderTransform = new TranslateTransform(offset, 0);
             }
         }
 
+        // Plays (or restarts) the warning sound once while preventing concurrent overlap
         private void PlayWarningSound()
         {
             if (!isWarningPlaying && warningOutputDevice != null)
@@ -246,7 +358,7 @@ namespace DecibelMeter
                 float volume = 1.0f;
                 if (float.TryParse(VolumeBox.Text, out float volInput))
                 {
-                    volInput = Math.Clamp(volInput, 0, 200);
+                    volInput = Math.Clamp(volInput, MinVolume, MaxVolume);
                     volume = volInput / 100f;
                 }
                 warningAudioFile!.Volume = volume;
@@ -257,17 +369,17 @@ namespace DecibelMeter
                     warningAudioFile.Position = 0;
                     warningOutputDevice.Play();
                     while (warningOutputDevice.PlaybackState == PlaybackState.Playing)
-                        System.Threading.Thread.Sleep(50);
+                        Thread.Sleep(50);
                     isWarningPlaying = false;
                 });
             }
         }
 
-        // Shows or repositions overlay window on selected monitor
+        // Shows overlay centered on selected monitor (cancels pending fade-out)
         private void ShowOrRepositionOverlay()
         {
             if (overlay == null) return;
-            var selectedScreen = Screen.AllScreens[
+            var selectedScreen = WinForms.Screen.AllScreens[
                 MonitorComboBox.SelectedIndex >= 0 ? MonitorComboBox.SelectedIndex : 0];
             var (dpiX, dpiY) = GetDpi();
 
@@ -277,21 +389,18 @@ namespace DecibelMeter
                           (selectedScreen.Bounds.Height / dpiY - overlay.Height) / 2;
 
             overlay.CancelPendingHide(); // Ensures overlay stays visible and cancels fade-out
-            overlayShown = true;
         }
 
-        // Hides overlay window with fade out effect
+        // Hides overlay window with fade out effect (if currently visible)
         private void HideOverlay()
         {
             if (overlay != null && overlay.Visibility == Visibility.Visible)
             {
                 overlay.FadeOutAndHide();
-                overlayShown = false;
             }
         }
 
-        // Gets DPI scaling factors for current window for proper calculation of center
-        // <returns>Tuple of (dpiX, dpiY)</returns>
+        // Gets DPI scaling factors for current window (used to convert device px to WPF units)
         private (double dpiX, double dpiY) GetDpi()
         {
             var source = PresentationSource.FromVisual(this);
@@ -302,8 +411,6 @@ namespace DecibelMeter
         }
 
         // Handles Select Warning Sound button click, opens file dialog for audio file
-        // <param name="sender">Button that was clicked</param>
-        // <param name="e">Event args</param>
         private void SelectSound_Click(object sender, RoutedEventArgs e)
         {
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
@@ -312,22 +419,23 @@ namespace DecibelMeter
             };
             if (openFileDialog.ShowDialog() == true)
             {
-                warningSoundPath = openFileDialog.FileName;
-                SelectedSoundText.Text = System.IO.Path.GetFileName(warningSoundPath);
+                var selectedPath = openFileDialog.FileName;
+                SelectedSoundText.Text = System.IO.Path.GetFileName(selectedPath);
 
                 warningAudioFile?.Dispose();
                 warningOutputDevice?.Dispose();
 
-                warningAudioFile = new AudioFileReader(warningSoundPath);
+                warningAudioFile = new AudioFileReader(selectedPath);
                 warningOutputDevice = new WaveOutEvent();
                 warningOutputDevice.Init(warningAudioFile);
 
-                // Save selected warning sound path to config
-                config.LastWarningSoundPath = warningSoundPath;
+                // Persist chosen sound path
+                config.LastWarningSoundPath = selectedPath;
                 ConfigService.Save(config);
             }
         }
 
+        // Handles Select Overlay Image button click, lets user choose a custom overlay
         private void SelectOverlayImage_Click(object sender, RoutedEventArgs e)
         {
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
@@ -346,6 +454,7 @@ namespace DecibelMeter
             }
         }
 
+        // Handles sound feature toggle change
         private void ActivateSoundCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             config.EnableWarningSound = ActivateSoundCheckBox.IsChecked == true;
@@ -353,18 +462,147 @@ namespace DecibelMeter
             ConfigService.Save(config);
         }
 
+        // Handles overlay feature toggle change
         private void ActivateOverlayCheckBox_Changed(object sender, RoutedEventArgs e)
         {
             config.EnableOverlay = ActivateOverlayCheckBox.IsChecked == true;
+            UpdateOverlayDependentVisibility(config.EnableOverlay);
             if (!config.EnableOverlay)
                 HideOverlay();
             ConfigService.Save(config);
+        }
+
+        // --- Validation Handlers ---
+
+        // Threshold textbox changed -> validate & update UI state
+        private void ThresholdBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            ValidateThreshold();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
+        }
+
+        // Average window textbox changed -> validate & update UI state
+        private void AverageWindowBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            ValidateAverageWindow();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
+        }
+
+        // Volume textbox changed -> validate & update UI state
+        private void VolumeBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            ValidateVolume();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
+        }
+
+        // Volume textbox focus lost -> ensure commit of a valid value if entered
+        private void VolumeBox_LostFocus(object? sender, RoutedEventArgs e)
+        {
+            ValidateVolume();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
+        }
+
+        // Validates threshold percent input and persists if valid
+        private void ValidateThreshold()
+        {
+            string txt = ThresholdBox.Text.Trim();
+            if (int.TryParse(txt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+                value >= MinThreshold && value <= MaxThreshold)
+            {
+                _thresholdValid = true;
+                ThresholdBox.BorderBrush = _validBorderBrush;
+                ThresholdBox.ToolTip = "Valid threshold (0 - 100)";
+                if (!_initializing)
+                {
+                    config.ThresholdPercent = value;
+                    ConfigService.Save(config);
+                }
+            }
+            else
+            {
+                _thresholdValid = false;
+                ThresholdBox.BorderBrush = _invalidBorderBrush;
+                ThresholdBox.ToolTip = "Enter integer 0 - 100";
+            }
+        }
+
+        // Validates average window seconds input and persists if valid
+        private void ValidateAverageWindow()
+        {
+            string txt = AverageWindowBox.Text.Trim();
+            if (double.TryParse(txt, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+                value >= MinAvg && value <= MaxAvg)
+            {
+                _avgValid = true;
+                AverageWindowBox.BorderBrush = _validBorderBrush;
+                AverageWindowBox.ToolTip = value == 0
+                    ? "Instant (no averaging). Range 0 - 5."
+                    : $"Averaging {value:0.###}s (0 = instant). Range 0 - 5.";
+                if (!_initializing)
+                {
+                    config.AverageWindowSeconds = value;
+                    ConfigService.Save(config);
+                }
+            }
+            else
+            {
+                _avgValid = false;
+                AverageWindowBox.BorderBrush = _invalidBorderBrush;
+                AverageWindowBox.ToolTip = "Enter number 0 - 5 (e.g. 0, 0.5, 2, 4.75)";
+            }
+        }
+
+        // Validates warning sound volume input and persists if valid
+        private void ValidateVolume()
+        {
+            string txt = VolumeBox.Text.Trim();
+            if (int.TryParse(txt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+                value >= MinVolume && value <= MaxVolume)
+            {
+                _volumeValid = true;
+                VolumeBox.BorderBrush = _validBorderBrush;
+                VolumeBox.ToolTip = "Valid volume (0 - 200)";
+                if (!_initializing)
+                {
+                    config.WarningSoundVolume = value;
+                    ConfigService.Save(config);
+                }
+            }
+            else
+            {
+                _volumeValid = false;
+                VolumeBox.BorderBrush = _invalidBorderBrush;
+                VolumeBox.ToolTip = "Enter integer 0 - 200";
+            }
+        }
+
+        // Returns true if all input fields currently contain valid values
+        private bool AllInputsValid() => _thresholdValid && _avgValid && _volumeValid;
+
+        // Enables / disables Start button based on current validation state (when idle)
+        private void UpdateStartButtonEnabled()
+        {
+            if (StartMonitoringButton != null && !IsMonitoring)
+                StartMonitoringButton.IsEnabled = AllInputsValid();
         }
 
         // Handles window closing event, disposes resources and closes overlay
         // <param name="e">CancelEventArgs for closing event</param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            // Final commit attempt before exit (only save if all valid)
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+            if (AllInputsValid())
+            {
+                ConfigService.Save(config);
+            }
+
             audioService?.Dispose();
             audioService = null;
 
@@ -382,7 +620,6 @@ namespace DecibelMeter
             {
                 overlay.Close();
                 overlay = null;
-                overlayShown = false;
             }
 
             base.OnClosing(e);
