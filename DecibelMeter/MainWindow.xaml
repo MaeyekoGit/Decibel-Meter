@@ -75,7 +75,8 @@
                 <TextBox x:Name="ThresholdBox"
                          Width="140"
                          HorizontalAlignment="Left"
-                         ToolTip="Trigger warning when average level exceeds this percentage (0-100)"/>
+                         TextChanged="ThresholdBox_TextChanged"
+                         ToolTip="0 - 100"/>
             </StackPanel>
             <StackPanel Grid.Column="2" HorizontalAlignment="Left">
                 <TextBlock Text="Average Window (s):" Style="{StaticResource LabelStyle}" HorizontalAlignment="Left"/>
@@ -184,7 +185,8 @@
                              Width="140"
                              Text="100"
                              HorizontalAlignment="Left"
-                             ToolTip="Playback volume multiplier for the warning sound (0-200%)"/>
+                             TextChanged="VolumeBox_TextChanged"
+                             ToolTip="0 - 200"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -266,7 +268,8 @@
                     Orientation="Horizontal"
                     HorizontalAlignment="Center"
                     Margin="0,16,0,0">
-            <Button Content="Start Monitoring"
+            <Button x:Name="StartMonitoringButton"
+                    Content="Start Monitoring"
                     Width="150"
                     Click="Start_Click"/>
             <Button Content="Stop Monitoring"

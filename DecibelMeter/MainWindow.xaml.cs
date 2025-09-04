@@ -22,9 +22,18 @@ namespace DecibelMeter
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
         private string overlayImagePath = "Assets\\default_overlay.png";
 
-        // Updated constraints
-        private const double MinAverageWindowSeconds = 0.0; // 0 = no averaging
-        private const double MaxAverageWindowSeconds = 5.0;
+        // Validation ranges
+        private const int MinThreshold = 0; // Min threshold percent
+        private const int MaxThreshold = 100; // Max threshold percent
+        private const double MinAvg = 0.0; // Min average window (0 = instant)
+        private const double MaxAvg = 5.0; // Max average window in seconds
+        private const int MinVolume = 0; // Min volume percent
+        private const int MaxVolume = 200; // Max volume percent (200% allowed)
+
+        // Validation state
+        private bool _thresholdValid = true;
+        private bool _avgValid = true;
+        private bool _volumeValid = true;
 
         private readonly Brush _validBorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
         private readonly Brush _invalidBorderBrush = new SolidColorBrush(Color.FromRgb(170, 51, 51));
@@ -35,9 +44,9 @@ namespace DecibelMeter
             // Load config first
             config = ConfigService.Load();
             // Clamp stored config if it was previously > 5
-            if (config.AverageWindowSeconds > MaxAverageWindowSeconds)
+            if (config.AverageWindowSeconds > MaxAvg)
             {
-                config.AverageWindowSeconds = MaxAverageWindowSeconds;
+                config.AverageWindowSeconds = MaxAvg;
                 ConfigService.Save(config);
             }
             if (config.AverageWindowSeconds < 0)
@@ -59,6 +68,12 @@ namespace DecibelMeter
 
             InitializeOverlay();
             LoadLastWarningSound();
+
+            // Initial validation pass
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+            UpdateStartButtonEnabled();
         }
 
         private void ApplyConfigToUi()
@@ -168,15 +183,16 @@ namespace DecibelMeter
         // <param name="e">Event args</param>
         private void Start_Click(object sender, RoutedEventArgs e)
         {
+            // Guard even if button disabled somehow
+            if (!AllInputsValid())
+            {
+                System.Windows.MessageBox.Show("Cannot start monitoring. Fix invalid inputs.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            if (int.TryParse(ThresholdBox.Text, out var th))
-                config.ThresholdPercent = Math.Clamp(th, 0, 100);
-
-            if (int.TryParse(VolumeBox.Text, out var vol))
-                config.WarningSoundVolume = Math.Clamp(vol, 0, 200);
-
+            // Values already committed during validation events
             config.SelectedMonitor = MonitorComboBox.SelectedIndex;
-            // Average window already updated live
             ConfigService.Save(config);
 
             audioService = new AudioService();
@@ -204,13 +220,13 @@ namespace DecibelMeter
         {
             Dispatcher.Invoke(() =>
             {
-                double windowSec = ClampAverageWindow(config.AverageWindowSeconds);
+                double windowSec = Math.Clamp(config.AverageWindowSeconds, MinAvg, MaxAvg);
 
                 // Collect sample
                 percentBuffer.Add((DateTime.UtcNow, percent));
 
                 // Retain only last MaxAverageWindowSeconds seconds (now 5)
-                DateTime retentionCutoff = DateTime.UtcNow - TimeSpan.FromSeconds(MaxAverageWindowSeconds);
+                DateTime retentionCutoff = DateTime.UtcNow - TimeSpan.FromSeconds(MaxAvg);
                 percentBuffer.RemoveAll(p => p.Timestamp < retentionCutoff);
 
                 double avgPercent;
@@ -252,9 +268,6 @@ namespace DecibelMeter
                 }
             });
         }
-
-        private static double ClampAverageWindow(double value) =>
-            Math.Clamp(value < 0 ? 0 : value, MinAverageWindowSeconds, MaxAverageWindowSeconds);
 
         // Updates visual bar to reflect current decibel level
         // <param name="percent">Measured percent value</param>
@@ -299,7 +312,7 @@ namespace DecibelMeter
                 float volume = 1.0f;
                 if (float.TryParse(VolumeBox.Text, out float volInput))
                 {
-                    volInput = Math.Clamp(volInput, 0, 200);
+                    volInput = Math.Clamp(volInput, MinVolume, MaxVolume);
                     volume = volInput / 100f;
                 }
                 warningAudioFile!.Volume = volume;
@@ -415,24 +428,94 @@ namespace DecibelMeter
             ConfigService.Save(config);
         }
 
+        // --- Validation Handlers ---
+
+        private void ThresholdBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            ValidateThreshold();
+            UpdateStartButtonEnabled();
+        }
+
         private void AverageWindowBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
-            string text = AverageWindowBox.Text.Trim();
-            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
-                value >= MinAverageWindowSeconds && value <= MaxAverageWindowSeconds)
+            ValidateAverageWindow();
+            UpdateStartButtonEnabled();
+        }
+
+        private void VolumeBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            ValidateVolume();
+            UpdateStartButtonEnabled();
+        }
+
+        private void ValidateThreshold()
+        {
+            string txt = ThresholdBox.Text.Trim();
+            if (int.TryParse(txt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+                value >= MinThreshold && value <= MaxThreshold)
             {
+                _thresholdValid = true;
+                ThresholdBox.BorderBrush = _validBorderBrush;
+                ThresholdBox.ToolTip = "Valid threshold (0 - 100)";
+                config.ThresholdPercent = value;
+                ConfigService.Save(config);
+            }
+            else
+            {
+                _thresholdValid = false;
+                ThresholdBox.BorderBrush = _invalidBorderBrush;
+                ThresholdBox.ToolTip = "Enter integer 0 - 100";
+            }
+        }
+
+        private void ValidateAverageWindow()
+        {
+            string txt = AverageWindowBox.Text.Trim();
+            if (double.TryParse(txt, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) &&
+                value >= MinAvg && value <= MaxAvg)
+            {
+                _avgValid = true;
                 AverageWindowBox.BorderBrush = _validBorderBrush;
                 AverageWindowBox.ToolTip = value == 0
-                    ? "No averaging (instant value). Range 0 - 5 seconds."
-                    : $"Rolling average window: {value:0.###} s (0 = instant). Range 0 - 5.";
+                    ? "Instant (no averaging). Range 0 - 5."
+                    : $"Averaging {value:0.###}s (0 = instant). Range 0 - 5.";
                 config.AverageWindowSeconds = value;
                 ConfigService.Save(config);
             }
             else
             {
+                _avgValid = false;
                 AverageWindowBox.BorderBrush = _invalidBorderBrush;
-                AverageWindowBox.ToolTip = "Enter a number between 0 and 5 (e.g. 0, 0.5, 2, 4.75).";
+                AverageWindowBox.ToolTip = "Enter number 0 - 5 (e.g. 0, 0.5, 2, 4.75)";
             }
+        }
+
+        private void ValidateVolume()
+        {
+            string txt = VolumeBox.Text.Trim();
+            if (int.TryParse(txt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) &&
+                value >= MinVolume && value <= MaxVolume)
+            {
+                _volumeValid = true;
+                VolumeBox.BorderBrush = _validBorderBrush;
+                VolumeBox.ToolTip = "Valid volume (0 - 200)";
+                config.WarningSoundVolume = value;
+                ConfigService.Save(config);
+            }
+            else
+            {
+                _volumeValid = false;
+                VolumeBox.BorderBrush = _invalidBorderBrush;
+                VolumeBox.ToolTip = "Enter integer 0 - 200";
+            }
+        }
+
+        private bool AllInputsValid() => _thresholdValid && _avgValid && _volumeValid;
+
+        private void UpdateStartButtonEnabled()
+        {
+            if (StartMonitoringButton != null)
+                StartMonitoringButton.IsEnabled = AllInputsValid();
         }
 
         // Handles window closing event, disposes resources and closes overlay
