@@ -1,9 +1,9 @@
 ﻿using System.Globalization;
 using System.Windows;
-using System.Windows.Forms;
 using System.Windows.Media;
 using DecibelMeter.Models;
 using NAudio.Wave;
+using WinForms = System.Windows.Forms;
 
 namespace DecibelMeter
 {
@@ -41,6 +41,9 @@ namespace DecibelMeter
         // Prevent validation-triggered saves during initial UI population
         private bool _initializing = true;
 
+        // Convenience flag
+        private bool IsMonitoring => audioService != null;
+
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
         {
@@ -63,13 +66,13 @@ namespace DecibelMeter
             // Apply config before wiring events to avoid premature handler execution
             ApplyConfigToUi();
 
-            // Now wire events (approach 1)
+            // Wire events
             ActivateSoundCheckBox.Checked += ActivateSoundCheckBox_Changed;
             ActivateSoundCheckBox.Unchecked += ActivateSoundCheckBox_Changed;
             ActivateOverlayCheckBox.Checked += ActivateOverlayCheckBox_Changed;
             ActivateOverlayCheckBox.Unchecked += ActivateOverlayCheckBox_Changed;
 
-            // Ensure VolumeBox event is wired even if XAML forgot TextChanged
+            // Ensure textbox handlers wired
             VolumeBox.TextChanged -= VolumeBox_TextChanged;
             VolumeBox.TextChanged += VolumeBox_TextChanged;
             VolumeBox.LostFocus -= VolumeBox_LostFocus;
@@ -84,13 +87,14 @@ namespace DecibelMeter
             InitializeOverlay();
             LoadLastWarningSound();
 
-            // Initial validation pass (after ApplyConfigToUi values are set)
+            // Initial validation pass
             ValidateThreshold();
             ValidateAverageWindow();
             ValidateVolume();
             UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
 
-            _initializing = false; // Now allow normal validation saves
+            _initializing = false; // allow saves from now on
         }
 
         private void ApplyConfigToUi()
@@ -125,6 +129,14 @@ namespace DecibelMeter
             {
                 SelectedOverlayText.Text = "No file selected";
             }
+        }
+
+        private void UpdateMonitoringButtons()
+        {
+            if (StartMonitoringButton != null)
+                StartMonitoringButton.IsEnabled = !IsMonitoring && AllInputsValid();
+            if (StopMonitoringButton != null)
+                StopMonitoringButton.IsEnabled = IsMonitoring;
         }
 
         private void UpdateVolumeVisibility(bool visible)
@@ -174,13 +186,12 @@ namespace DecibelMeter
                 DeviceComboBox.SelectedItem = config.SelectedDevice;
         }
 
-        // Populates monitor ComboBox with available screens
         private void PopulateMonitorList()
         {
             MonitorComboBox.Items.Clear();
-            foreach (var screen in Screen.AllScreens)
+            foreach (var screen in WinForms.Screen.AllScreens)
                 MonitorComboBox.Items.Add(screen.DeviceName);
-            MonitorComboBox.SelectedIndex = config.SelectedMonitor < Screen.AllScreens.Length
+            MonitorComboBox.SelectedIndex = config.SelectedMonitor < WinForms.Screen.AllScreens.Length
                 ? config.SelectedMonitor
                 : 0;
         }
@@ -195,15 +206,15 @@ namespace DecibelMeter
             };
         }
 
-        // Handles Start Monitoring button click
-        // <param name="sender">Button that was clicked</param>
-        // <param name="e">Event args</param>
         private void Start_Click(object sender, RoutedEventArgs e)
         {
-            // Guard even if button disabled somehow
+            if (IsMonitoring)
+                return;
+
             if (!AllInputsValid())
             {
-                System.Windows.MessageBox.Show("Cannot start monitoring. Fix invalid inputs.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                System.Windows.MessageBox.Show("Cannot start monitoring. Fix invalid inputs.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -218,25 +229,34 @@ namespace DecibelMeter
 
             audioService = new AudioService();
             audioService.VolumeMeasured += OnVolumeMeasured;
-            audioService.Start(config.SelectedDevice);
+
+            try
+            {
+                audioService.Start(config.SelectedDevice);
+            }
+            catch
+            {
+                // Cleanup if start failed
+                audioService.Dispose();
+                audioService = null;
+                throw;
+            }
+
+            UpdateMonitoringButtons();
         }
 
-        // Handles Stop Monitoring button click
-        // <param name="sender">Button that was clicked</param>
-        // <param name="e">Event args</param>
         private void Stop_Click(object sender, RoutedEventArgs e)
         {
             audioService?.Dispose();
             audioService = null;
             OutputText.Text = "Monitoring stopped.";
             HideOverlay();
-
-            // Hide the threshold line
             ThresholdLine.Visibility = Visibility.Collapsed;
             ThresholdValueLabel.Visibility = Visibility.Collapsed;
+
+            UpdateMonitoringButtons();
         }
 
-        // Receives percent (0-100)
         private void OnVolumeMeasured(double percent)
         {
             Dispatcher.Invoke(() =>
@@ -350,11 +370,10 @@ namespace DecibelMeter
             }
         }
 
-        // Shows or repositions overlay window on selected monitor
         private void ShowOrRepositionOverlay()
         {
             if (overlay == null) return;
-            var selectedScreen = Screen.AllScreens[
+            var selectedScreen = WinForms.Screen.AllScreens[
                 MonitorComboBox.SelectedIndex >= 0 ? MonitorComboBox.SelectedIndex : 0];
             var (dpiX, dpiY) = GetDpi();
 
@@ -455,24 +474,28 @@ namespace DecibelMeter
         {
             ValidateThreshold();
             UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
         }
 
         private void AverageWindowBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
             ValidateAverageWindow();
             UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
         }
 
         private void VolumeBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
             ValidateVolume();
             UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
         }
 
         private void VolumeBox_LostFocus(object? sender, RoutedEventArgs e)
         {
-            // Ensure commit on focus loss
             ValidateVolume();
+            UpdateStartButtonEnabled();
+            UpdateMonitoringButtons();
         }
 
         private void ValidateThreshold()
@@ -550,7 +573,7 @@ namespace DecibelMeter
 
         private void UpdateStartButtonEnabled()
         {
-            if (StartMonitoringButton != null)
+            if (StartMonitoringButton != null && !IsMonitoring)
                 StartMonitoringButton.IsEnabled = AllInputsValid();
         }
 

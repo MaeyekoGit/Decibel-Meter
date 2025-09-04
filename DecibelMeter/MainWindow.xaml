@@ -272,7 +272,8 @@
                     Content="Start Monitoring"
                     Width="150"
                     Click="Start_Click"/>
-            <Button Content="Stop Monitoring"
+            <Button x:Name="StopMonitoringButton"
+                    Content="Stop Monitoring"
                     Width="150"
                     Click="Stop_Click"
                     Margin="8,0,0,0"/>
