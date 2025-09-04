@@ -45,14 +45,22 @@
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/> <!-- 0 spacer -->
-            <RowDefinition Height="Auto"/> <!-- 1 Device -->
-            <RowDefinition Height="Auto"/> <!-- 2 Threshold + Monitor -->
-            <RowDefinition Height="Auto"/> <!-- 3 Overlay -->
-            <RowDefinition Height="Auto"/> <!-- 4 Warning Sound -->
-            <RowDefinition Height="*"/>    <!-- 5 Output -->
-            <RowDefinition Height="Auto"/> <!-- 6 Bar -->
-            <RowDefinition Height="Auto"/> <!-- 7 Buttons -->
+            <RowDefinition Height="Auto"/>
+            <!-- 0 spacer -->
+            <RowDefinition Height="Auto"/>
+            <!-- 1 Device -->
+            <RowDefinition Height="Auto"/>
+            <!-- 2 Threshold + Monitor -->
+            <RowDefinition Height="Auto"/>
+            <!-- 3 Overlay -->
+            <RowDefinition Height="Auto"/>
+            <!-- 4 Warning Sound -->
+            <RowDefinition Height="*"/>
+            <!-- 5 Output -->
+            <RowDefinition Height="Auto"/>
+            <!-- 6 Bar -->
+            <RowDefinition Height="Auto"/>
+            <!-- 7 Buttons -->
         </Grid.RowDefinitions>
 
         <!-- Device -->
@@ -94,10 +102,11 @@
                 Padding="0,8,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition/>
-                    <ColumnDefinition Width="Auto" MinWidth="212"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="14"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
+                <StackPanel Grid.Column="0" Grid.ColumnSpan="2">
                     <Button x:Name="SelectOverlayButton"
                             Content="Select Overlay Image"
                             Click="SelectOverlayImage_Click"
@@ -110,7 +119,7 @@
                                TextTrimming="CharacterEllipsis"
                                ToolTip="Currently selected overlay image file"/>
                 </StackPanel>
-                <CheckBox Grid.Column="1"
+                <CheckBox Grid.Column="2"
                           x:Name="ActivateOverlayCheckBox"
                           Content="Activate Overlay"
                           Margin="0,6,0,0"
@@ -129,11 +138,12 @@
                 Padding="0,0,0,8">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition/>
-                    <ColumnDefinition Width="159"/>
-                    <ColumnDefinition Width="53"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="14"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
+
+                <StackPanel Grid.Column="0" Grid.ColumnSpan="2">
                     <Button x:Name="SelectSoundButton"
                             Content="Select Warning Sound"
                             Click="SelectSound_Click"
@@ -155,14 +165,14 @@
                              HorizontalAlignment="Left"
                              ToolTip="Playback volume multiplier for the warning sound"/>
                 </StackPanel>
-                <CheckBox Grid.Column="1"
+
+                <CheckBox Grid.Column="2"
                           x:Name="ActivateSoundCheckBox"
                           Content="Activate Sound"
                           Margin="0,6,0,0"
                           VerticalAlignment="Top"
                           Height="16"
                           Foreground="#EEE"
-                          Grid.ColumnSpan="2"
                           Checked="ActivateSoundCheckBox_Changed"
                           Unchecked="ActivateSoundCheckBox_Changed"/>
             </Grid>
