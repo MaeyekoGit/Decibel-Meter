@@ -4,7 +4,6 @@ using System.Windows.Forms;
 using System.Windows.Media;
 using DecibelMeter.Models;
 using NAudio.Wave;
-using System.Collections.Generic;
 
 namespace DecibelMeter
 {
@@ -23,8 +22,10 @@ namespace DecibelMeter
         private readonly List<(DateTime Timestamp, double Value)> percentBuffer = new();
         private string overlayImagePath = "Assets\\default_overlay.png";
 
-        private const double MinAverageWindowSeconds = 0.1;
-        private const double MaxAverageWindowSeconds = 30.0;
+        // Updated constraints
+        private const double MinAverageWindowSeconds = 0.0; // 0 = no averaging
+        private const double MaxAverageWindowSeconds = 5.0;
+
         private readonly Brush _validBorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
         private readonly Brush _invalidBorderBrush = new SolidColorBrush(Color.FromRgb(170, 51, 51));
 
@@ -33,6 +34,17 @@ namespace DecibelMeter
         {
             // Load config first
             config = ConfigService.Load();
+            // Clamp stored config if it was previously > 5
+            if (config.AverageWindowSeconds > MaxAverageWindowSeconds)
+            {
+                config.AverageWindowSeconds = MaxAverageWindowSeconds;
+                ConfigService.Save(config);
+            }
+            if (config.AverageWindowSeconds < 0)
+            {
+                config.AverageWindowSeconds = 0;
+                ConfigService.Save(config);
+            }
 
             InitializeComponent();
 
@@ -157,10 +169,14 @@ namespace DecibelMeter
         private void Start_Click(object sender, RoutedEventArgs e)
         {
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            config.ThresholdPercent = int.TryParse(ThresholdBox.Text, out var th) ? th : config.ThresholdPercent;
-            config.WarningSoundVolume = int.TryParse(VolumeBox.Text, out var vol) ? vol : config.WarningSoundVolume;
+            if (int.TryParse(ThresholdBox.Text, out var th))
+                config.ThresholdPercent = Math.Clamp(th, 0, 100);
+
+            if (int.TryParse(VolumeBox.Text, out var vol))
+                config.WarningSoundVolume = Math.Clamp(vol, 0, 200);
+
             config.SelectedMonitor = MonitorComboBox.SelectedIndex;
-            // Average window already updated live via TextChanged if valid
+            // Average window already updated live
             ConfigService.Save(config);
 
             audioService = new AudioService();
@@ -189,25 +205,39 @@ namespace DecibelMeter
             Dispatcher.Invoke(() =>
             {
                 double windowSec = ClampAverageWindow(config.AverageWindowSeconds);
-                // Retain up to MaxAverageWindowSeconds seconds for possible future expansion
+
+                // Collect sample
                 percentBuffer.Add((DateTime.UtcNow, percent));
+
+                // Retain only last MaxAverageWindowSeconds seconds (now 5)
                 DateTime retentionCutoff = DateTime.UtcNow - TimeSpan.FromSeconds(MaxAverageWindowSeconds);
                 percentBuffer.RemoveAll(p => p.Timestamp < retentionCutoff);
 
-                DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(windowSec);
-                double avgPercent = 0.0;
-                var slice = percentBuffer.Where(p => p.Timestamp >= cutoff).ToList();
-                if (slice.Count > 0)
-                    avgPercent = slice.Average(p => p.Value);
+                double avgPercent;
+                if (windowSec <= 0.0000001)
+                {
+                    // No averaging mode
+                    avgPercent = percent;
+                }
+                else
+                {
+                    DateTime cutoff = DateTime.UtcNow - TimeSpan.FromSeconds(windowSec);
+                    var slice = percentBuffer.Where(p => p.Timestamp >= cutoff).ToList();
+                    avgPercent = slice.Count > 0 ? slice.Average(p => p.Value) : percent;
+                }
 
-                OutputText.Text = $"Level: {percent:F0}% (Avg: {avgPercent:F0}% / {windowSec:0.###}s)";
+                OutputText.Text = windowSec <= 0.0000001
+                    ? $"Level: {percent:F0}% (Instant)"
+                    : $"Level: {percent:F0}% (Avg: {avgPercent:F0}% / {windowSec:0.###}s)";
+
                 double thresholdPercent = config.ThresholdPercent;
                 OutputText.Foreground = avgPercent > thresholdPercent ? Brushes.Red : Brushes.White;
 
                 UpdateBarLevel(percent);
                 UpdateThresholdLine(thresholdPercent);
 
-                if (avgPercent > thresholdPercent)
+                bool over = avgPercent > thresholdPercent;
+                if (over)
                 {
                     if (config.EnableWarningSound)
                         PlayWarningSound();
@@ -224,7 +254,7 @@ namespace DecibelMeter
         }
 
         private static double ClampAverageWindow(double value) =>
-            Math.Clamp(value <= 0 ? 2.0 : value, MinAverageWindowSeconds, MaxAverageWindowSeconds);
+            Math.Clamp(value < 0 ? 0 : value, MinAverageWindowSeconds, MaxAverageWindowSeconds);
 
         // Updates visual bar to reflect current decibel level
         // <param name="percent">Measured percent value</param>
@@ -392,14 +422,16 @@ namespace DecibelMeter
                 value >= MinAverageWindowSeconds && value <= MaxAverageWindowSeconds)
             {
                 AverageWindowBox.BorderBrush = _validBorderBrush;
-                AverageWindowBox.ToolTip = $"Rolling average window in seconds (current: {value:0.###})";
+                AverageWindowBox.ToolTip = value == 0
+                    ? "No averaging (instant value). Range 0 - 5 seconds."
+                    : $"Rolling average window: {value:0.###} s (0 = instant). Range 0 - 5.";
                 config.AverageWindowSeconds = value;
                 ConfigService.Save(config);
             }
             else
             {
                 AverageWindowBox.BorderBrush = _invalidBorderBrush;
-                AverageWindowBox.ToolTip = $"Enter a number between {MinAverageWindowSeconds} and {MaxAverageWindowSeconds} (e.g. 0.5, 2, 2.5)";
+                AverageWindowBox.ToolTip = "Enter a number between 0 and 5 (e.g. 0, 0.5, 2, 4.75).";
             }
         }
 
