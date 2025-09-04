@@ -89,7 +89,7 @@ Originally created due to my headphones isolating too well and thus my speaking 
    Click "Select Warning Sound" to choose a custom audio file (`.wav`, `.mp3`, `.ogg`).
 
 5. **Adjust Warning Volume:**  
-   Set the warning sound volume (0�200%).
+   Set the warning sound volume (0 - 200%) (only visible when sound is enabled).
 
 6. **Select Overlay Image / Monitor:**  
    Pick an overlay image and monitor (monitor selector only visible when overlay is enabled).
