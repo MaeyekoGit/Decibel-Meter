@@ -186,7 +186,7 @@
                              Text="100"
                              HorizontalAlignment="Left"
                              TextChanged="VolumeBox_TextChanged"
-                             ToolTip="0 - 200"/>
+                             ToolTip="Playback volume multiplier for the warning sound (0-200%)"/>
                 </StackPanel>
             </Grid>
         </Border>

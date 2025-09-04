@@ -38,6 +38,9 @@ namespace DecibelMeter
         private readonly Brush _validBorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#555555"));
         private readonly Brush _invalidBorderBrush = new SolidColorBrush(Color.FromRgb(170, 51, 51));
 
+        // Prevent validation-triggered saves during initial UI population
+        private bool _initializing = true;
+
         // Initializes new instance of MainWindow and sets up UI and config
         public MainWindow()
         {
@@ -66,14 +69,28 @@ namespace DecibelMeter
             ActivateOverlayCheckBox.Checked += ActivateOverlayCheckBox_Changed;
             ActivateOverlayCheckBox.Unchecked += ActivateOverlayCheckBox_Changed;
 
+            // Ensure VolumeBox event is wired even if XAML forgot TextChanged
+            VolumeBox.TextChanged -= VolumeBox_TextChanged;
+            VolumeBox.TextChanged += VolumeBox_TextChanged;
+            VolumeBox.LostFocus -= VolumeBox_LostFocus;
+            VolumeBox.LostFocus += VolumeBox_LostFocus;
+
+            ThresholdBox.TextChanged -= ThresholdBox_TextChanged;
+            ThresholdBox.TextChanged += ThresholdBox_TextChanged;
+
+            AverageWindowBox.TextChanged -= AverageWindowBox_TextChanged;
+            AverageWindowBox.TextChanged += AverageWindowBox_TextChanged;
+
             InitializeOverlay();
             LoadLastWarningSound();
 
-            // Initial validation pass
+            // Initial validation pass (after ApplyConfigToUi values are set)
             ValidateThreshold();
             ValidateAverageWindow();
             ValidateVolume();
             UpdateStartButtonEnabled();
+
+            _initializing = false; // Now allow normal validation saves
         }
 
         private void ApplyConfigToUi()
@@ -190,8 +207,12 @@ namespace DecibelMeter
                 return;
             }
 
+            // Final commit pass
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+
             config.SelectedDevice = DeviceComboBox.SelectedItem?.ToString() ?? "";
-            // Values already committed during validation events
             config.SelectedMonitor = MonitorComboBox.SelectedIndex;
             ConfigService.Save(config);
 
@@ -448,6 +469,12 @@ namespace DecibelMeter
             UpdateStartButtonEnabled();
         }
 
+        private void VolumeBox_LostFocus(object? sender, RoutedEventArgs e)
+        {
+            // Ensure commit on focus loss
+            ValidateVolume();
+        }
+
         private void ValidateThreshold()
         {
             string txt = ThresholdBox.Text.Trim();
@@ -457,8 +484,11 @@ namespace DecibelMeter
                 _thresholdValid = true;
                 ThresholdBox.BorderBrush = _validBorderBrush;
                 ThresholdBox.ToolTip = "Valid threshold (0 - 100)";
-                config.ThresholdPercent = value;
-                ConfigService.Save(config);
+                if (!_initializing)
+                {
+                    config.ThresholdPercent = value;
+                    ConfigService.Save(config);
+                }
             }
             else
             {
@@ -479,8 +509,11 @@ namespace DecibelMeter
                 AverageWindowBox.ToolTip = value == 0
                     ? "Instant (no averaging). Range 0 - 5."
                     : $"Averaging {value:0.###}s (0 = instant). Range 0 - 5.";
-                config.AverageWindowSeconds = value;
-                ConfigService.Save(config);
+                if (!_initializing)
+                {
+                    config.AverageWindowSeconds = value;
+                    ConfigService.Save(config);
+                }
             }
             else
             {
@@ -499,8 +532,11 @@ namespace DecibelMeter
                 _volumeValid = true;
                 VolumeBox.BorderBrush = _validBorderBrush;
                 VolumeBox.ToolTip = "Valid volume (0 - 200)";
-                config.WarningSoundVolume = value;
-                ConfigService.Save(config);
+                if (!_initializing)
+                {
+                    config.WarningSoundVolume = value;
+                    ConfigService.Save(config);
+                }
             }
             else
             {
@@ -522,6 +558,15 @@ namespace DecibelMeter
         // <param name="e">CancelEventArgs for closing event</param>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            // Final commit attempt before exit
+            ValidateThreshold();
+            ValidateAverageWindow();
+            ValidateVolume();
+            if (AllInputsValid())
+            {
+                ConfigService.Save(config);
+            }
+
             audioService?.Dispose();
             audioService = null;
 
